@@ -29,16 +29,8 @@ app.UseStaticFiles();    // serves files from wwwroot
 
 // ---------- Minimal endpoints ----------
 
-// Root help
-app.MapGet("/", () => Results.Text("""
-SimpleServer is running.
-
-Try:
-GET  /health
-POST /echo         (JSON body: { "message": "hi" })
-POST /score        (JSON body: { "username": "jake", "value": 123 })
-GET  /score/top?limit=10
-""", "text/plain"));
+app.UseDefaultFiles();
+app.UseStaticFiles();
 
 // Health check
 app.MapGet("/health", () => new { ok = true, serverTime = DateTimeOffset.UtcNow });
