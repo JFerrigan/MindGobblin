@@ -44,21 +44,12 @@ jobs:
     needs: build-and-push
     runs-on: ubuntu-latest
     steps:
-      - name: Write SSH key to file
-        run: |
-          mkdir -p "$RUNNER_TEMP"
-          # Write the multi-line secret exactly as-is
-          printf '%s\n' "${{ secrets.SSH_PRIVATE_KEY }}" > "$RUNNER_TEMP/ci_key"
-          # Strip any accidental CRLF that can break parsers
-          sed -i 's/\r$//' "$RUNNER_TEMP/ci_key"
-          chmod 600 "$RUNNER_TEMP/ci_key"
-    
       - name: Deploy on VPS over SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
-          key_path: ${{ runner.temp }}/ci_key
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
           script_stop: true
           script: |
             set -euo pipefail
