@@ -1,0 +1,714 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Echoes of the Heartforge — A Branching Fantasy</title>
+<style>
+  :root{
+    --bg:#0b0f17; --panel:#111929; --ink:#e7ecf3; --muted:#9fb0c3;
+    --accent:#77a6ff; --good:#3ff0c1; --warn:#ffb703; --bad:#ff5c7a;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0; background:radial-gradient(1200px 800px at 70% 20%, #101a2a 0, #0b0f17 55%, #070a10 100%);
+    color:var(--ink); font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+    display:flex; flex-direction:column; align-items:center; gap:14px; padding:16px;
+  }
+  header{width:min(960px,96vw); display:flex; align-items:flex-start; justify-content:space-between; gap:8px}
+  h1{margin:0; font-size:22px}
+  .badge{display:inline-block; padding:2px 10px; border-radius:999px; background:rgba(119,166,255,.15); color:#cfe0ff; font-size:12px}
+  main{
+    width:min(960px,96vw); display:grid; grid-template-columns:2.2fr 1fr; gap:14px;
+  }
+  @media (max-width:900px){ main{grid-template-columns:1fr} }
+  .card{
+    background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02));
+    border:1px solid rgba(255,255,255,.08); border-radius:18px; padding:16px;
+    box-shadow:0 20px 60px rgba(0,0,0,.45); backdrop-filter: blur(8px);
+  }
+  #text{line-height:1.6; font-size:17px; white-space:pre-wrap}
+  .choices{display:flex; flex-direction:column; gap:10px; margin-top:14px}
+  .choices button{
+    text-align:left; padding:10px 12px; border-radius:12px; border:1px solid rgba(255,255,255,.12);
+    background:#121b2e; color:var(--ink); cursor:pointer; font:inherit;
+  }
+  .choices button:hover{border-color:rgba(119,166,255,.6); box-shadow:0 0 0 2px rgba(119,166,255,.2) inset}
+  .pill{display:inline-block; padding:2px 8px; border-radius:999px; background:rgba(255,255,255,.08); font-size:12px; margin-right:6px}
+  .muted{color:var(--muted)}
+  .row{display:flex; align-items:center; gap:8px; flex-wrap:wrap}
+  .stats{display:grid; grid-template-columns:repeat(3,1fr); gap:6px; margin-top:8px}
+  .stat{background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.08); border-radius:10px; padding:8px 10px}
+  .stat b{display:block; font-size:12px; color:var(--muted)}
+  .inventory{display:flex; flex-wrap:wrap; gap:6px; margin-top:8px}
+  .tag{background:rgba(63,240,193,.12); color:#b8ffec; border:1px solid rgba(63,240,193,.35); border-radius:999px; padding:2px 8px; font-size:12px}
+  .sidebar h3{margin:0 0 8px 0; font-size:14px; color:#cfe0ff}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace}
+  .toolbar{display:flex; gap:8px; flex-wrap:wrap; margin-top:10px}
+  .toolbar button{padding:6px 10px; border-radius:8px; border:1px solid rgba(255,255,255,.15); background:#121b2e; color:var(--ink); cursor:pointer}
+  #log{max-height:220px; overflow:auto; background:rgba(255,255,255,.03); border:1px solid rgba(255,255,255,.08); border-radius:12px; padding:10px; font-size:13px}
+  #toast{position:fixed; bottom:16px; left:50%; transform:translateX(-50%); background:#121b2e; color:var(--ink); border:1px solid rgba(255,255,255,.12); padding:8px 12px; border-radius:10px; display:none}
+  a{color:#9cd1ff}
+  .hr{height:1px; background:rgba(255,255,255,.1); margin:10px 0}
+</style>
+</head>
+<body>
+  <header>
+    <h1>Echoes of the Heartforge</h1>
+    <div class="badge">A branching fantasy about love, war, and treasure</div>
+  </header>
+
+  <main>
+    <section class="card">
+      <div id="location" class="muted mono"></div>
+      <div id="text"></div>
+      <div class="choices" id="choices"></div>
+    </section>
+
+    <aside class="card sidebar">
+      <h3>Adventurer</h3>
+      <div class="row">
+        <span id="nameTag" class="pill">Name: —</span>
+        <span id="pronounTag" class="pill">They/Them</span>
+        <span id="factionTag" class="pill">Unaffiliated</span>
+      </div>
+      <div class="stats">
+        <div class="stat"><b>Courage</b><span id="statCourage">1</span></div>
+        <div class="stat"><b>Wit</b><span id="statWit">1</span></div>
+        <div class="stat"><b>Compassion</b><span id="statCompassion">1</span></div>
+      </div>
+      <div class="hr"></div>
+      <div class="row"><span class="pill">Coin: <span id="coin">10</span></span><span class="pill">Renown: <span id="renown">0</span></span></div>
+      <div class="inventory" id="inv"></div>
+      <div class="hr"></div>
+      <div class="toolbar">
+        <button id="btnBack">← Back</button>
+        <button id="btnSave">Save</button>
+        <button id="btnLoad">Load</button>
+        <button id="btnRestart">Restart</button>
+      </div>
+      <div class="hr"></div>
+      <h3>Timeline</h3>
+      <div id="log"></div>
+    </aside>
+  </main>
+
+  <div id="toast"></div>
+
+<script>
+(() => {
+  // ========= Core State =========
+  const state = {
+    name: "Nameless",
+    pronouns: { subj:"they", obj:"them", poss:"their", be:"are", s:"" }, // default neutral
+    stats: { Courage:1, Wit:1, Compassion:1 },
+    coin: 10,
+    renown: 0,
+    inv: ["Keepsake charm", "Crinkled map"],
+    flags: {},    // arbitrary booleans/strings
+    love: { Mira:0, Nyx:0, Tal:0 },
+    faction: "Unaffiliated",
+    path: "",     // Crown/Wardens/Corsairs/Arcanum/Guild
+    history: [],  // for Back button
+  };
+
+  const el = (id)=>document.getElementById(id);
+  const textEl = el('text'), choicesEl = el('choices'), locEl = el('location');
+  const nameTag = el('nameTag'), pronounTag = el('pronounTag'), factionTag = el('factionTag');
+  const coinEl = el('coin'), renownEl = el('renown'), invEl = el('inv');
+  const sc = {Courage:el('statCourage'), Wit:el('statWit'), Compassion:el('statCompassion')};
+  const logEl = el('log'), toastEl = el('toast');
+
+  // ========= Utilities =========
+  const dice = (n)=>Math.floor(Math.random()*n); // 0..n-1
+  const has = (item)=>state.inv.includes(item);
+  const addItem = (item)=>{ if(!has(item)) state.inv.push(item); };
+  const removeItem = (item)=>{ state.inv = state.inv.filter(x=>x!==item); };
+  const setFlag = (k,v=true)=>{ state.flags[k]=v; };
+  const getFlag = (k)=>state.flags[k];
+
+  function fmt(s){
+    // simple interpolation
+    const p = state.pronouns;
+    return s
+      .replaceAll("{{name}}", state.name)
+      .replaceAll("{{they}}", p.subj).replaceAll("{{them}}", p.obj).replaceAll("{{their}}", p.poss).replaceAll("{{be}}", p.be).replaceAll("{{s}}", p.s);
+  }
+
+  function log(msg){ state.flags._log = (state.flags._log||0)+1; logEl.innerHTML += `<div>${fmt(msg)}</div>`; logEl.scrollTop = logEl.scrollHeight; }
+
+  function renderSidebar(){
+    nameTag.textContent = `Name: ${state.name}`;
+    pronounTag.textContent = `${cap(state.pronouns.subj)}/${cap(state.pronouns.obj)}`;
+    factionTag.textContent = state.faction;
+    coinEl.textContent = state.coin;
+    renownEl.textContent = state.renown;
+    sc.Courage.textContent = state.stats.Courage;
+    sc.Wit.textContent = state.stats.Wit;
+    sc.Compassion.textContent = state.stats.Compassion;
+    invEl.innerHTML = state.inv.map(i=>`<span class="tag">${i}</span>`).join('');
+  }
+  function cap(x){ return x.charAt(0).toUpperCase()+x.slice(1); }
+
+  function toast(msg){
+    toastEl.textContent = msg; toastEl.style.display='block';
+    setTimeout(()=>toastEl.style.display='none', 1600);
+  }
+
+  // ========= Scene Engine =========
+  let current = "title";
+  const scenes = {};
+
+  function scene(id, data){ scenes[id]=data; }
+
+  function go(id){
+    // push to history for back
+    state.history.push({id:current, snapshot: JSON.stringify(state)});
+    if (state.history.length>100) state.history.shift();
+    current = id;
+    draw();
+  }
+
+  function backOne(){
+    const h = state.history.pop();
+    if(!h){ toast("No earlier scene."); return; }
+    current = h.id;
+    const s = JSON.parse(h.snapshot);
+    Object.assign(state, s);
+    draw(true);
+  }
+
+  function applyEff(eff){
+    if(!eff) return;
+    if (eff.gain){
+      for (const [k,v] of Object.entries(eff.gain)){
+        if (k in state.stats) state.stats[k]+=v;
+        if (k==="coin") state.coin+=v;
+        if (k==="renown") state.renown+=v;
+      }
+    }
+    if (eff.setFlag){ for (const [k,v] of Object.entries(eff.setFlag)) setFlag(k,v); }
+    if (eff.items){ for (const it of (eff.items.add||[])) addItem(it); for (const it of (eff.items.remove||[])) removeItem(it); }
+    if (eff.love){ for (const [k,v] of Object.entries(eff.love)) state.love[k]=(state.love[k]||0)+v; }
+    if (eff.faction){ state.faction = eff.faction; }
+    if (eff.path){ state.path = eff.path; }
+  }
+
+  function draw(skipLog){
+    const s = scenes[current];
+    if(!s){ textEl.textContent = "Broken path."; choicesEl.innerHTML=""; return; }
+    locEl.textContent = s.loc || "";
+    textEl.innerHTML = fmt(s.text);
+    choicesEl.innerHTML = "";
+
+    // conditional side-effects on enter
+    if (s.onEnter) s.onEnter();
+
+    // log
+    if (!skipLog && s.log) log(s.log);
+
+    (s.choices||[]).forEach(ch=>{
+      if (ch.if && !ch.if()) return;
+      const b = document.createElement('button');
+      b.innerHTML = fmt(ch.text);
+      b.onclick = () => {
+        applyEff(ch.effect);
+        const next = (typeof ch.to === "function") ? ch.to() : ch.to;
+        go(next);
+      };
+      choicesEl.appendChild(b);
+    });
+
+    renderSidebar();
+  }
+
+  // ========= Save / Load / Restart =========
+  el('btnBack').onclick = backOne;
+  el('btnSave').onclick = ()=>{ localStorage.setItem('eoth_save', JSON.stringify({state, current})); toast("Saved."); };
+  el('btnLoad').onclick = ()=>{
+    const raw = localStorage.getItem('eoth_save');
+    if(!raw){ toast("No save found."); return; }
+    const data = JSON.parse(raw);
+    Object.assign(state, data.state);
+    current = data.current;
+    draw(true); toast("Loaded.");
+  };
+  el('btnRestart').onclick = ()=>{ if(confirm("Restart the tale?")) { Object.assign(state, {
+      name:"Nameless", pronouns:{subj:"they",obj:"them",poss:"their",be:"are",s:""},
+      stats:{Courage:1,Wit:1,Compassion:1}, coin:10, renown:0, inv:["Keepsake charm","Crinkled map"],
+      flags:{}, love:{Mira:0,Nyx:0,Tal:0}, faction:"Unaffiliated", path:"", history:[]
+    }); current="title"; draw(true); }};
+
+  // ========= SCENES =========
+
+  // Title & Character Creation
+  scene("title",{
+    loc:"✦ Willowrest Festival Eve",
+    text:
+`Lanterns sway above willow boughs, and the river hums a silver tune through your hometown of Willowrest. Tonight is a festival; tomorrow, the world.
+
+You are an adventurer in the making—though whether you become a hero, a scoundrel, or a scandal is between you and the gods.
+
+<b>Echoes of the Heartforge</b> is a tale of coming of age, love and loss, war drums and wind-tossed treasure maps. Your choices matter.
+
+Shall we begin?`,
+    choices:[
+      { text:"Begin your story.", to:"cc_name", log:"The lanterns are lit. A story begins." }
+    ]
+  });
+
+  scene("cc_name",{
+    loc:"Willowrest • A name carries weight",
+    text:
+`An old scribe at a stall lifts a quill. “Names hook stories to souls,” {{they}} say. “What shall we scratch into fate’s ledger?” 
+
+<small class="muted">Type your name and choose pronouns.</small>
+<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+  <input id="inpName" placeholder="Your name" style="padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,.25);background:#0f1626;color:#e7ecf3"/>
+  <select id="prnSel" style="padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,.25);background:#0f1626;color:#e7ecf3">
+    <option value="they">They/Them</option>
+    <option value="she">She/Her</option>
+    <option value="he">He/Him</option>
+  </select>
+</div>`,
+    choices:[
+      { text:"[Confirm name & pronouns]", to: ()=>{
+          const n = document.getElementById('inpName').value.trim() || "Rowan";
+          const pr = document.getElementById('prnSel').value;
+          state.name = n;
+          if (pr==="she") state.pronouns = {subj:"she",obj:"her",poss:"her",be:"is",s:"s"};
+          else if (pr==="he") state.pronouns = {subj:"he",obj:"him",poss:"his",be:"is",s:"s"};
+          else state.pronouns = {subj:"they",obj:"them",poss:"their",be:"are",s:""};
+          return "cc_virtue";
+        } }
+    ]
+  });
+
+  scene("cc_virtue",{
+    loc:"Willowrest • First choice of heart",
+    text:
+`The scribe nods. “A name glows brighter with a virtue to tend it. What flicker burns warmest in {{name}}’s chest?”`,
+    choices:[
+      { text:"Courage — step forward even when knees shake. (+1 Courage)", to:"fest_intro", effect:{gain:{Courage:1}, setFlag:{virtue:"Courage"}} },
+      { text:"Wit — the right word at the wrong time. (+1 Wit)", to:"fest_intro", effect:{gain:{Wit:1}, setFlag:{virtue:"Wit"}} },
+      { text:"Compassion — stitch what the world rips. (+1 Compassion)", to:"fest_intro", effect:{gain:{Compassion:1}, setFlag:{virtue:"Compassion"}} },
+    ]
+  });
+
+  // Act I — Festival & Inciting Incident
+  scene("fest_intro",{
+    loc:"Willowrest • Festival night",
+    text:
+`Mira—your childhood friend—balances skewers of honeyed pears. “{{name}}! You came!” Nyx, a traveling trickster, juggles knives nearby, almost losing a finger, grinning like a thief in a jewelry store. Tal, the captain’s ambitious squire, eyes the lanterns as if they were enemy banners.
+
+The river carries laughter. For a moment, the future is soft.
+
+Then: the horizon bruises. Black pennons of the **Dominion** crawl over the hills, and the bells of Willowrest ring a warning that turns jokes to iron.
+
+People scatter. Soldiers shout. Mira squeezes your hand. Tal draws steel. Nyx flips a knife and winks. “So! Adventure?”`,
+    choices:[
+      { text:"Stand with the Crown’s militia to defend the bridge.", to:"bridge_defend", effect:{path:"Crown", faction:"Crown"} },
+      { text:"Lead folk into the forest to the Wardens’ safe paths.", to:"wardens_woods", effect:{path:"Wardens", faction:"Wardens"} },
+      { text:"Slip away with Nyx—rumors say a treasure map hides in the chaos.", to:"corsair_prompt", effect:{path:"Corsairs", faction:"Corsairs"} }
+    ]
+  });
+
+  // Crown path
+  scene("bridge_defend",{
+    loc:"Willowrest Bridge • First clash",
+    text:
+`The wood trembles under boots. Captain Brenn presses a spear into your hands. “Hold the line,” {{they}} bellow. “Hold your breath if you must—but hold the line.”
+
+Tal fights at your side, fierce and bright. Mira ferries the wounded with trembling gentleness. The Dominion pushes, then falters when the river god sends mist to snarl their archers (Nyx blows a kiss to the fog, claiming credit).
+
+In the crush, you face a Dominion standard-bearer. The world narrows to the thud of your pulse.`,
+    choices:[
+      { text:"Charge (Courage) — trust your feet to choose before thought.", to:()=> dice(6) < state.stats.Courage+1 ? "bridge_win" : "bridge_loss" },
+      { text:"Feint (Wit) — stumble, then strike where eyes don’t look.", to:()=> dice(6) < state.stats.Wit+1 ? "bridge_win" : "bridge_loss" },
+      { text:"Shield (Compassion) — protect Mira and the weak.", to:()=> (state.stats.Compassion>=2) ? "bridge_save" : "bridge_loss" }
+    ]
+  });
+
+  scene("bridge_win",{
+    loc:"Willowrest Bridge • Victory’s taste",
+    text:
+`Steel finds wood, not flesh. The standard drops; the Dominion stalls. A cheer rises; Captain Brenn claps your shoulder hard enough to pop a rib. Tal’s grin could light a village.
+
+But victory taxes the living. The town smolders. The Crown calls for **volunteers** to carry a sealed letter to Eldermere, where the ancient vault—**the Heartforge**—is rumored to slumber beneath the city. The letter smells of wax and difficult choices.`,
+    choices:[
+      { text:"Swear service to the Crown and carry the letter.", to:"crown_oath", effect:{gain:{renown:1}, items:{add:["Sealed royal letter"]}} },
+      { text:"Slip away to check on Mira’s family first.", to:"mira_house" }
+    ]
+  });
+
+  scene("bridge_save",{
+    loc:"Willowrest • A life spared",
+    text:
+`You interpose a shield at the right heartbeat. A child’s cry is cut short by your courage; Mira looks at you as if the lanterns hung for this moment alone.
+
+The line holds—not only for steel, but for kindness. In the ashen morning, a Crown courier begs you to carry a sealed message to Eldermere regarding **the Heartforge**—an ancient power both sides would kill to claim.`,
+    choices:[
+      { text:"Accept the task out of duty.", to:"crown_oath", effect:{gain:{renown:1}, items:{add:["Sealed royal letter"]}} },
+      { text:"First, ensure your friends are safe.", to:"mira_house" }
+    ]
+  });
+
+  scene("bridge_loss",{
+    loc:"Willowrest Bridge • The taste of dirt",
+    text:
+`The standard swings; your feet tangle; the river explodes in laughter and you meet the bridge with your teeth. When you blink, Tal hauls you up by the collar and Mira’s slap brings back the moon. You live. Pride will write the bill later.
+
+At dawn, the captain—down three teeth and a father—asks you to carry a sealed letter to Eldermere. “The Heartforge,” {{they}} mutter. “Better the Crown’s vault than the Dominion’s furnace.”`,
+    choices:[
+      { text:"Nod, take the letter, and swear to deliver it.", to:"crown_oath", effect:{items:{add:["Sealed royal letter"]}} },
+      { text:"Refuse service; you have other paths.", to:"fork_mid" }
+    ]
+  });
+
+  scene("crown_oath",{
+    loc:"Road to Eldermere • Oathbound",
+    text:
+`Tal walks with you, polishing a dented pauldron and recounting every swing you missed. Mira presses dried pears into your palm, eyes bright. Nyx flips a coin: heads, they come; tails, they also come (“It’s a two-headed coin, hush.”)
+
+War rumble behind, city spires ahead. Somewhere under Eldermere, the <i>Heartforge</i> sleeps, dreaming metal and memory.`,
+    choices:[
+      { text:"Travel fast; duty first.", to:"eld_approach", effect:{gain:{Courage:1, renown:1}} },
+      { text:"Travel clever; avoid patrols and gather rumors.", to:"eld_rumors", effect:{gain:{Wit:1}} },
+      { text:"Travel kind; protect refugees on the way.", to:"eld_refugees", effect:{gain:{Compassion:1}, renown:1} }
+    ]
+  });
+
+  // Wardens path
+  scene("wardens_woods",{
+    loc:"Glimmerwood • The green road",
+    text:
+`You steer folk through willows and into the old paths where stories walk before feet. The **Wardens** emerge from bark and shadow: antlered helms, moss-quiet, eyes like patient rivers.
+
+Their leader, Thalia, touches your brow. “A storm seeks the **Heartforge**,” {{they}} whisper. “If war is a blade, this is the whetstone. Help us hide it, and the world forgets the taste of its edge.”`,
+    choices:[
+      { text:"Swear to the Wardens; safeguard the Heartforge.", to:"warden_vow", effect:{faction:"Wardens", path:"Wardens", gain:{renown:1}} },
+      { text:"Ask a favor: protect Willowrest while you pursue your own path.", to:"fork_mid", effect:{gain:{Compassion:1}} }
+    ]
+  });
+
+  scene("warden_vow",{
+    loc:"Glimmerwood • Moon-shard errand",
+    text:
+`To hide the Heartforge, you must fetch a **Moon-Shard**, a relic that veils true names. It lies in a barrow haunted by a joke that got out of hand, which is to say a **barrow-wight** who refuses to stop doing the bit. Nyx volunteers to heckle.
+
+Mira knots protective thread around your wrist. Tal tries to pretend ghosts don’t bother {{them}}{{state.pronouns.s}}.`,
+    choices:[
+      { text:"Face the barrow with courage.", to: ()=> dice(6) < state.stats.Courage+1 ? "barrow_win" : "barrow_lose" },
+      { text:"Talk the wight down (Wit).", to: ()=> dice(6) < state.stats.Wit+1 ? "barrow_win" : "barrow_lose" },
+      { text:"Appeal to {{their}} loneliness (Compassion).", to: ()=> (state.stats.Compassion>=2) ? "barrow_win" : "barrow_lose" }
+    ]
+  });
+
+  scene("barrow_win",{
+    loc:"Barrow of Jests • Moon-Shard won",
+    text:
+`You survive humor weaponized. The wight relinquishes the Moon-Shard with a final pun that would kill a lesser soul. The Wardens bless you: leaves coil into a cloak. The path to Eldermere opens—there is no hiding from the river of history, only steering the boat.`,
+    choices:[
+      { text:"To Eldermere, under leaf and star.", to:"eld_approach", effect:{items:{add:["Moon-Shard"]}, gain:{renown:1}} }
+    ]
+  });
+
+  scene("barrow_lose",{
+    loc:"Barrow • Dignity wounded",
+    text:
+`You retreat, chased by spectral tomatoes. The Wardens still trust your heart—Mira stitches your pride back together, Tal swears not to tell (Nyx sells the story to a minstrel).
+
+Time presses. Eldermere calls.`,
+    choices:[
+      { text:"Head to Eldermere anyway.", to:"eld_approach" }
+    ]
+  });
+
+  // Corsairs path
+  scene("corsair_prompt",{
+    loc:"Willowrest Docks • The wink and the wave",
+    text:
+`Nyx produces a wrinkled **treasure map** allegedly stolen from a drunk cartographer who might also be Nyx in a fake mustache. It claims a route to vault tunnels beneath **Eldermere**. “While armies posture, we prosper,” {{they}} croon.
+
+A corsair sloop, the <i>Lark</i>, waits with black sails and a crew of laughing disasters.`,
+    choices:[
+      { text:"Join the Corsairs for a heist-first approach.", to:"sloop_sea", effect:{items:{add:["Suspect treasure map"]}, faction:"Corsairs", path:"Corsairs"} },
+      { text:"Pocket the map and take the road instead.", to:"fork_mid", effect:{items:{add:["Suspect treasure map"]}, gain:{Wit:1}} }
+    ]
+  });
+
+  scene("sloop_sea",{
+    loc:"The Lark • Salt & schemes",
+    text:
+`Captain Jun offers rum and a warning: “Treasure is simpler than people, and yet people sink ships, not treasure.” Storms paw the horizon like bored cats.
+
+You chart a course to Eldermere’s river mouth. Banners of the Dominion glint inland. The crew bets if you’re lucky or just pretty. (Trick: be both.)`,
+    choices:[
+      { text:"Dare the storm to arrive first.", to: ()=> dice(6) < state.stats.Courage+1 ? "sea_win" : "sea_lose" },
+      { text:"Skirt the storm with clever tacking.", to: ()=> dice(6) < state.stats.Wit+1 ? "sea_win" : "sea_lose" },
+      { text:"Aid the seasick with steady hands.", to:"sea_care" }
+    ]
+  });
+
+  scene("sea_win",{
+    loc:"River Mouth • Bold arrival",
+    text:
+`You ride the storm like a rumor and slip into Eldermere by dawn. The tunnels await; the crew sings a song about oysters that might be an insult. Nyx steals a kiss—from fortune, or perhaps you; it’s unclear.`,
+    choices:[
+      { text:"Into the tunnels beneath Eldermere.", to:"eld_tunnels", effect:{gain:{renown:1}} }
+    ]
+  });
+
+  scene("sea_lose",{
+    loc:"Mud-flat • Ship meets geography",
+    text:
+`The <i>Lark</i> kisses a sandbar with the tenderness of a hammer. You make land, wet and dignified. The corsairs promise to catch up after a brief argument with a rope.
+
+You proceed on foot, damp but determined.`,
+    choices:[
+      { text:"To Eldermere’s undercity.", to:"eld_tunnels" }
+    ]
+  });
+
+  scene("sea_care",{
+    loc:"The Lark • Kindness is ballast",
+    text:
+`You steady hands and hearts. When dawn breaks, so does the storm. The crew toasts you with ginger tea. Captain Jun presses a **lockpick charm** into your palm. “For doors that deserve opening.”`,
+    choices:[
+      { text:"To Eldermere’s undercity.", to:"eld_tunnels", effect:{items:{add:["Lockpick charm"]}, gain:{Compassion:1}} }
+    ]
+  });
+
+  // Mid Fork (for those who refused/shifted)
+  scene("fork_mid",{
+    loc:"Crossroads • Breath between drums",
+    text:
+`You take a day to breathe and bind wounds. War is a river; you are a boat with choices for oars. The road forks toward Eldermere regardless.`,
+    choices:[
+      { text:"Go openly as a Crown courier.", to:"crown_oath", effect:{items:{add:["Sealed royal letter"]}, faction:"Crown"} },
+      { text:"Slide through green roads with the Wardens.", to:"eld_approach", effect:{faction:"Wardens"} },
+      { text:"Use rumors and maps to find the tunnels.", to:"eld_tunnels", effect:{items:{add:["Suspect treasure map"]}} }
+    ]
+  });
+
+  // Eldermere Approach (common Act II)
+  scene("eld_rumors",{
+    loc:"Eldermere Road • Ears open",
+    text:
+`In roadside inns, tongues wag. The **Arcanum** seeks the Heartforge for study (“For safety,” they insist). The **Guild** wants it for profit (“For stability,” they insist). The Dominion wants it to end the war by making endings permanent.
+
+You sketch a web of lies that might be true.`,
+    choices:[
+      { text:"Leverage rumors to secure a discreet guide.", to:"eld_approach", effect:{gain:{Wit:1}, items:{add:["Guide’s token"]}} }
+    ]
+  });
+
+  scene("eld_refugees",{
+    loc:"The Road • Bread and bandits",
+    text:
+`You share bread, mend shoes, and hand over your last coin to a child whose laugh could buy kingdoms. Bandits try your patience; your courage tries them back. Word of your kindness walks before you like dawn.`,
+    choices:[
+      { text:"Arrive in Eldermere with a small procession.", to:"eld_approach", effect:{gain:{Compassion:1, renown:1}, coin:-2} }
+    ]
+  });
+
+  scene("eld_approach",{
+    loc:"Eldermere Gates • City of staircases",
+    text:
+`Eldermere rises: bridges like lutes, towers like spears, markets like storms. The Heartforge is beneath—so the songs say—sealed behind puzzles, old oaths, and the sort of door that resents being a metaphor.
+
+Who walks beside you? Mira’s warmth, Tal’s steel, Nyx’s mischief—love may have its say.`,
+    choices:[
+      { text:"Walk with Mira (romance friendly).", to:"ally_mira", effect:{love:{Mira:1}} },
+      { text:"Walk with Tal (rival/romance).", to:"ally_tal", effect:{love:{Tal:1}} },
+      { text:"Walk with Nyx (chaos/romance).", to:"ally_nyx", effect:{love:{Nyx:1}} },
+      { text:"Go alone; the echo is cleaner.", to:"eld_tunnels" }
+    ]
+  });
+
+  scene("ally_mira",{
+    loc:"Eldermere • A hand to hold",
+    text:
+`Mira threads {{their}} fingers with yours as if weaving a spell. “If we find treasure, we share. If we find trouble, we share,” {{they}} says. “If we find a bakery, we share only if you’re very, very nice.”`,
+    choices:[ { text:"To the undercity.", to:"eld_tunnels" } ]
+  });
+  scene("ally_tal",{
+    loc:"Eldermere • Banter as armor",
+    text:
+`Tal walks at your shoulder, listing your mistakes with obvious admiration. “You are infuriating,” {{they}} says. “It’s convenient I enjoy being infuriated.”`,
+    choices:[ { text:"To the undercity.", to:"eld_tunnels" } ]
+  });
+  scene("ally_nyx",{
+    loc:"Eldermere • Two thieves of time",
+    text:
+`Nyx steals a plum; you steal it back; Nyx steals your breath; you pretend you didn’t notice. “Let’s go break a metaphor,” {{they}} purr.`,
+    choices:[ { text:"To the undercity.", to:"eld_tunnels" } ]
+  });
+
+  // Tunnels & Vault
+  scene("eld_tunnels",{
+    loc:"Undercity • Door of Doors",
+    text:
+`The tunnels smell of wet stone, old coins, and choices. At the heart is a door like a held breath. Runes whisper: <i>“Name your making, name your breaking, name your keeping.”</i>
+
+Three pedestals wait:
+• A basin for blood (Courage tested).
+• A mirror for truth (Wit tested).
+• A bowl for bread (Compassion tested).`,
+    choices:[
+      { text:"Prick a finger, swear to stand when others fall. (Courage test)", to:()=> dice(6) < state.stats.Courage+1 ? "vault_open" : "vault_hurt", effect:{gain:{Courage:1}} },
+      { text:"Speak a truth that costs you. (Wit test)", to:()=> dice(6) < state.stats.Wit+1 ? "vault_open" : "vault_trick", effect:{gain:{Wit:1}} },
+      { text:"Offer bread to the hungry dark. (Compassion test)", to:()=> dice(6) < state.stats.Compassion+1 ? "vault_open" : "vault_denied", effect:{gain:{Compassion:1}} },
+      { text:"Use the Moon-Shard or Lockpick charm if you have it.", to: ()=> has("Moon-Shard")||has("Lockpick charm") ? "vault_open" : "vault_denied" }
+    ]
+  });
+
+  scene("vault_hurt",{
+    loc:"Undercity • Blood learns patience",
+    text:
+`Your courage is loud but the door prefers music. It bites. You lose coin to bandage and pride to silence.`,
+    choices:[ { text:"Try another approach.", to:"eld_tunnels", effect:{coin:-2} } ]
+  });
+  scene("vault_trick",{
+    loc:"Undercity • Truth dodges",
+    text:
+`You offer a truth that is technically true and spiritually nonsense. The door admires the effort, refuses the entry.`,
+    choices:[ { text:"Try again, with feeling.", to:"eld_tunnels" } ]
+  });
+  scene("vault_denied",{
+    loc:"Undercity • The hungry dark waits",
+    text:
+`Silence is also an answer. The door remains a door. You remain outside it, hearts beating a little louder for being told “no.”`,
+    choices:[ { text:"Try again.", to:"eld_tunnels" } ]
+  });
+
+  scene("vault_open",{
+    loc:"Heartforge Antechamber • Echoes awake",
+    text:
+`The door relents. You enter a hall of anvils and stars. At its end: the **Heartforge**—a forge that tempers not only steel but memory, oath, and song. Legends say it can mend kingdoms or melt them.
+
+Around you arrive claimants: **Crown** envoys to secure it, **Wardens** to hide it, **Arcanum** to study it, **Guild** brokers to lease it, **Corsairs** to free it from anyone with a ledger. The Dominion marches to take it by drum.
+
+Mira’s eyes shine. Tal’s jaw sets. Nyx flips a coin that doesn’t land.`,
+    choices:[
+      { text:"Destroy the Heartforge. End the temptation.", to:"end_destroy", effect:{gain:{Courage:1, renown:2}, setFlag:{ending:"destroy"}} },
+      { text:"Hide it with the Wardens. Let the world forget.", to:"end_hide", effect:{faction:"Wardens", setFlag:{ending:"hide"}} },
+      { text:"Gift it to the Crown to end the war (you hope).", to:"end_crown", effect:{faction:"Crown", setFlag:{ending:"crown"}} },
+      { text:"Sell access via the Guild; regulate its use.", to:"end_guild", effect:{faction:"Guild", setFlag:{ending:"guild"}} },
+      { text:"Claim it for yourself; remake the world (oh no).", to:"end_claim", effect:{setFlag:{ending:"claim"}, gain:{renown:3}} }
+    ]
+  });
+
+  // Endings (epilogue builder)
+  function epilogueBase(){
+    const p = state.pronouns, L = state.love;
+    const topLove = Object.entries(L).sort((a,b)=>b[1]-a[1])[0];
+    const beloved = topLove && topLove[1]>1 ? topLove[0] : null;
+    let loveTxt = beloved ? `In the quiet after thunder, ${beloved} stays. ${beloved==="Mira"?"Laughter makes a home of your scars.":(beloved==="Tal"?"Banter becomes vow, steel softened by touch.":"Every day is a heist: of time, of kisses, of dawn.")}` : `You keep your own counsel. Sometimes the river keeps company enough.`;
+    return `
+<b>Epilogue • Echoes of the Heartforge</b>
+
+Renown: ${state.renown}  •  Faction: ${state.faction}  •  Path: ${state.path||"Wanderer"}
+Stats — Courage ${state.stats.Courage}, Wit ${state.stats.Wit}, Compassion ${state.stats.Compassion}
+
+${loveTxt}
+    `;
+  }
+
+  scene("end_destroy",{
+    loc:"Heartforge • The last spark",
+    text:()=>{
+      const base = epilogueBase();
+      const mercy = state.stats.Compassion>=3 ? "You temper mercy into the blow; the forge dies like a song finishing itself." : "You swing hard. Mercy can be a later project.";
+      const war = state.faction==="Crown" ? "The Crown wins fewer battles but more hearts; the war peters out like rain running out of sky." :
+                 state.faction==="Wardens" ? "Forest roads open again. Stories of weapons forget their endings." :
+                 "Without a wonder to chase, brokers and generals go home to quieter scandals.";
+      return fmt(
+`${mercy}
+
+The anvil sings once—then silence. Power unmade is also power used. ${war}
+
+${base}
+
+They call you the ${state.stats.Courage>=3?"Anvilbreaker":"Lantern-Bearer"}. When children ask what a hero is, old storytellers point to the space between your hands and say, “This is where {{their}} courage lived.”`);
+    },
+    choices:[ { text:"— Restart the tale —", to:"title" } ]
+  });
+
+  scene("end_hide",{
+    loc:"Glimmerwood • The secret road",
+    text:()=>{
+      const base = epilogueBase();
+      const wit = state.stats.Wit>=3 ? "You weave misdirections so elegant even lies get lost." : "You hide it under moss and prayer and hope.";
+      const loveLine = state.faction==="Wardens" ? "Trees lean to hear your laughter." : "You do not join the Wardens, but the paths treat you like an old friend.";
+      return fmt(
+`${wit} The Heartforge sleeps where roots hold hands and rivers keep confidences.
+
+The war exhausts itself chasing rumors and shadows. ${loveLine}
+
+${base}
+
+In spring, children find metal flowers in the leaf-litter—petals that ring when rain falls. They never quite rust.`);
+    },
+    choices:[ { text:"— Restart —", to:"title" } ]
+  });
+
+  scene("end_crown",{
+    loc:"Eldermere • A lawful hope",
+    text:()=>{
+      const base = epilogueBase();
+      const comp = state.stats.Compassion>=3 ? "You insist on oaths: the forge mends ploughs before it mints swords." : "You trust the Crown to be kind; history clears its throat.";
+      return fmt(
+`You kneel, not to power, but to a possibility. The Crown places the Heartforge under watch and writ.
+
+${comp} The Dominion sues for peace when bridges are repaired faster than they can be burned.
+
+${base}
+
+Years later, a statue in the market shows {{name}} refusing a crown. Pigeons adore it.`);
+    },
+    choices:[ { text:"— Restart —", to:"title" } ]
+  });
+
+  scene("end_guild",{
+    loc:"Ledgerhall • Terms & temper",
+    text:()=>{
+      const base = epilogueBase();
+      const wit = state.stats.Wit>=3 ? "Your contracts are poetry that rhyme 'profit' with 'ethic' without blushing." : "You try. The footnotes multiply like rabbits.";
+      return fmt(
+`${wit} The Guild administers access: builders before battlers, healers before hoarders. You build a board that somehow includes fisherfolk and poets.
+
+War becomes too expensive to be fashionable. Peace, unexpectedly, turns a profit.
+
+${base}
+
+On quiet nights, you audit your heart and write 'paid in full' beside three names.`);
+    },
+    choices:[ { text:"— Restart —", to:"title" } ]
+  });
+
+  scene("end_claim",{
+    loc:"Crown of Sparks • The terrible kindness",
+    text:()=>{
+      const base = epilogueBase();
+      const cour = state.stats.Courage>=3 ? "You don’t flinch from the weight. You never do." : "You learn, swaying, that crowns are heavier than they look.";
+      const warn = state.stats.Compassion>=3 ? "You use it to mend what breaks before you touch the broken on purpose." : "You change too much too quickly; people snap like thawing ice.";
+      return fmt(
+`The Heartforge answers <i>you</i>. Memories ring true. Oaths hammer flush. The world bends, just a little, toward the shape you believe it should take.
+
+${cour} ${warn}
+
+${base}
+
+Some call you Tyrant, some Savior, some both in the same breath. Nyx sells commemorative coins either way.`);
+    },
+    choices:[ { text:"— Restart —", to:"title" } ]
+  });
+
+  // ============== Boot ==============
+  draw(true);
+})();
+</script>
+</body>
+</html>
