@@ -1,0 +1,478 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Conway’s Game of Life</title>
+<style>
+  :root{
+    --bg:#0b0f17; --panel:#111929; --ring:#1c2940; --grid:#0f1626;
+    --live:#3ff0c1; --live2:#2cd7ac; --dead:#0f1626; --muted:#9fb0c3; --text:#e7ecf3; --accent:#77a6ff;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0; background:radial-gradient(1000px 700px at 70% 20%, #101a2a 0, #0b0f17 50%, #070a10 100%);
+    color:var(--text); font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;
+    display:flex; flex-direction:column; align-items:center; gap:12px; padding:14px;
+  }
+  header{width:min(1100px, 96vw); display:flex; align-items:center; justify-content:space-between; gap:8px}
+  h1{font-size:20px; margin:0}
+  .muted{color:var(--muted)}
+  .badge{display:inline-block; padding:2px 8px; border-radius:999px; background:rgba(119,166,255,.15); color:#cfe0ff; font-size:12px}
+  .card{
+    width:min(1100px,96vw); background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02));
+    border:1px solid rgba(255,255,255,.08); border-radius:18px; padding:14px; box-shadow:0 20px 60px rgba(0,0,0,.45);
+    backdrop-filter: blur(10px);
+  }
+  .wrap{display:grid; grid-template-columns:1fr 340px; gap:14px}
+  @media (max-width:1000px){ .wrap{grid-template-columns:1fr} }
+  canvas{width:100%; height:auto; border-radius:14px; background:linear-gradient(180deg,#0d1322,#0a1120); display:block; touch-action:none}
+  .panel{display:flex; flex-direction:column; gap:10px}
+  .row{display:flex; gap:10px; flex-wrap:wrap; align-items:center}
+  button,select,input{font:inherit}
+  button{padding:8px 12px; border-radius:10px; border:1px solid rgba(255,255,255,.15); background:#121b2e; color:var(--text); cursor:pointer}
+  button.primary{background:linear-gradient(180deg,var(--live),#11d39d); color:#08111a; border:none; box-shadow:0 10px 28px rgba(63,240,193,.35)}
+  button:disabled{opacity:.6; cursor:not-allowed}
+  .stat{background:rgba(255,255,255,.03); border:1px solid rgba(255,255,255,.08); border-radius:12px; padding:10px}
+  .stat .label{font-size:12px; color:var(--muted)}
+  .stat .value{font-size:20px; font-weight:700; margin-top:4px}
+  label.switch{display:flex; align-items:center; gap:8px; color:var(--muted); font-size:13px}
+  input[type=number]{width:90px; padding:6px 8px; border-radius:8px; border:1px solid rgba(255,255,255,.2); background:#0f1626; color:var(--text)}
+  input[type=range]{width:180px}
+  a{color:#9cd1ff}
+  footer{font-size:12px; color:var(--muted); text-align:center; margin-top:6px}
+</style>
+</head>
+<body>
+  <header>
+    <h1>Conway’s Game of Life <span class="badge">Canvas</span></h1>
+    <div class="muted">Click & drag to draw • Space = Play/Pause • S = Step • C = Clear • R = Random</div>
+  </header>
+
+  <div class="card">
+    <div class="wrap">
+      <canvas id="board" width="1200" height="800" aria-label="Game of Life board"></canvas>
+
+      <div class="panel">
+        <div class="row">
+          <button id="playBtn" class="primary">▶ Play</button>
+          <button id="stepBtn">Step</button>
+          <button id="clearBtn">Clear</button>
+          <button id="randBtn">Random</button>
+        </div>
+
+        <div class="row">
+          <label class="switch">Speed
+            <input id="speed" type="range" min="1" max="60" value="15" />
+            <span id="speedLbl" class="muted">15/s</span>
+          </label>
+        </div>
+
+        <div class="row">
+          <label class="switch">Density
+            <input id="density" type="range" min="1" max="100" value="20" />
+            <span id="densLbl" class="muted">20%</span>
+          </label>
+        </div>
+
+        <div class="row">
+          <label class="switch"><input type="checkbox" id="wrapChk" checked /> Wrap edges (torus)</label>
+          <label class="switch"><input type="checkbox" id="gridChk" checked /> Show grid</label>
+        </div>
+
+        <div class="row">
+          <label>Cols <input id="colsInp" type="number" value="120" min="10" max="400" /></label>
+          <label>Rows <input id="rowsInp" type="number" value="80" min="10" max="300" /></label>
+          <button id="resizeBtn">Resize</button>
+        </div>
+
+        <div class="stat">
+          <div class="label">Stats</div>
+          <div class="value" id="statsVal">Gen 0 • Pop 0</div>
+          <div class="muted" id="fpsVal">— fps</div>
+        </div>
+
+        <div class="stat">
+          <div class="label">Presets (place at center)</div>
+          <div class="row">
+            <button data-p="glider">Glider</button>
+            <button data-p="lwss">LWSS</button>
+            <button data-p="pulsar">Pulsar</button>
+            <button data-p="gosper">Gosper Gun</button>
+          </div>
+          <div class="muted" style="margin-top:6px">Tip: hold <b>Shift</b> and click to erase while drawing.</div>
+        </div>
+
+        <footer>
+          <a href="index.html">← Back to Home</a>
+        </footer>
+      </div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  // ---------- DOM ----------
+  const canvas = document.getElementById('board');
+  const ctx = canvas.getContext('2d');
+  const playBtn = document.getElementById('playBtn');
+  const stepBtn = document.getElementById('stepBtn');
+  const clearBtn = document.getElementById('clearBtn');
+  const randBtn = document.getElementById('randBtn');
+  const speed = document.getElementById('speed');
+  const speedLbl = document.getElementById('speedLbl');
+  const density = document.getElementById('density');
+  const densLbl = document.getElementById('densLbl');
+  const wrapChk = document.getElementById('wrapChk');
+  const gridChk = document.getElementById('gridChk');
+  const colsInp = document.getElementById('colsInp');
+  const rowsInp = document.getElementById('rowsInp');
+  const resizeBtn = document.getElementById('resizeBtn');
+  const statsVal = document.getElementById('statsVal');
+  const fpsVal = document.getElementById('fpsVal');
+
+  // ---------- Settings ----------
+  const saved = JSON.parse(localStorage.getItem('life_settings') || '{}');
+  let COLS = clamp(saved.cols || 120, 10, 400);
+  let ROWS = clamp(saved.rows || 80, 10, 300);
+  colsInp.value = COLS; rowsInp.value = ROWS;
+  speed.value = clamp(saved.speed || 15, 1, 60);
+  density.value = clamp(saved.density || 20, 1, 100);
+  wrapChk.checked = saved.wrap !== false;
+  gridChk.checked = saved.grid !== false;
+  updateSpeedLabel(); updateDensityLabel();
+
+  // ---------- Grid ----------
+  let A = new Uint8Array(COLS*ROWS);
+  let B = new Uint8Array(COLS*ROWS);
+  let gen = 0, pop = 0;
+  let running = false;
+  let cell, offx, offy;
+  let last = performance.now(), acc = 0, interval = 1000/Number(speed.value);
+  let fpsSmoothed = null;
+
+  // ---------- Helpers ----------
+  function idx(x,y){ return y*COLS + x; }
+  function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
+  function wrap(x,m){ x%=m; return x<0?x+m:x; }
+
+  function neighbors(x,y){
+    let n=0;
+    if (wrapChk.checked){
+      const xm = wrap(x-1,COLS), xp = wrap(x+1,COLS);
+      const ym = wrap(y-1,ROWS), yp = wrap(y+1,ROWS);
+      n = A[idx(xm,ym)]+A[idx(x,ym)]+A[idx(xp,ym)]
+        + A[idx(xm,y)]            + A[idx(xp,y)]
+        + A[idx(xm,yp)]+A[idx(x,yp)]+A[idx(xp,yp)];
+    } else {
+      for (let yy=y-1; yy<=y+1; yy++){
+        if (yy<0||yy>=ROWS) continue;
+        for (let xx=x-1; xx<=x+1; xx++){
+          if (xx<0||xx>=COLS) continue;
+          if (xx===x && yy===y) continue;
+          n += A[idx(xx,yy)];
+        }
+      }
+    }
+    return n;
+  }
+
+  function step(){
+    let newPop = 0;
+    for (let y=0;y<ROWS;y++){
+      for (let x=0;x<COLS;x++){
+        const i = idx(x,y);
+        const alive = A[i];
+        const n = neighbors(x,y);
+        const next = (alive ? (n===2||n===3) : (n===3)) ? 1:0;
+        B[i] = next;
+        newPop += next;
+      }
+    }
+    // swap
+    [A,B] = [B,A];
+    gen++; pop = newPop;
+  }
+
+  function clear(){
+    A.fill(0); gen=0; pop=0;
+  }
+
+  function randomize(pct){
+    const thresh = pct/100;
+    for (let i=0;i<A.length;i++) A[i] = Math.random()<thresh ? 1:0;
+    gen=0; pop = A.reduce((s,v)=>s+v,0);
+  }
+
+  function saveSettings(){
+    localStorage.setItem('life_settings', JSON.stringify({
+      cols: COLS, rows: ROWS, speed: Number(speed.value),
+      density: Number(density.value), wrap: wrapChk.checked, grid: gridChk.checked
+    }));
+  }
+
+  // ---------- Rendering ----------
+  function fitCanvas(){
+    const dpr = Math.max(1, Math.min(2, window.devicePixelRatio||1));
+    const cssW = canvas.clientWidth;
+    // keep ~3:2; height follows width
+    const cssH = Math.round(cssW * 2/3);
+    canvas.style.height = cssH+'px';
+    const w = Math.round(cssW*dpr), h = Math.round(cssH*dpr);
+    if (canvas.width!==w || canvas.height!==h){ canvas.width=w; canvas.height=h; }
+    cell = Math.floor(Math.min(w/COLS, h/ROWS));
+    const gridWpx = cell*COLS, gridHpx = cell*ROWS;
+    offx = Math.floor((w-gridWpx)/2);
+    offy = Math.floor((h-gridHpx)/2);
+  }
+
+  function draw(){
+    fitCanvas();
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+
+    // outer ring
+    ctx.lineWidth = 18;
+    ctx.strokeStyle = 'rgba(63,240,193,0.08)';
+    ctx.beginPath();
+    ctx.roundRect(offx-12, offy-12, COLS*cell+24, ROWS*cell+24, 16);
+    ctx.stroke();
+
+    // grid bg
+    ctx.fillStyle = '#0f1626';
+    ctx.fillRect(offx, offy, COLS*cell, ROWS*cell);
+
+    // live cells
+    const r = Math.max(2, Math.floor(cell*0.25));
+    for (let y=0;y<ROWS;y++){
+      for (let x=0;x<COLS;x++){
+        if (!A[idx(x,y)]) continue;
+        const px = offx + x*cell, py = offy + y*cell;
+        const c = (x+y)%2===0 ? '#3ff0c1' : '#2cd7ac';
+        ctx.fillStyle = c;
+        roundRect(ctx, px+1, py+1, cell-2, cell-2, r);
+        ctx.fill();
+      }
+    }
+
+    // grid lines (optional)
+    if (gridChk.checked && cell>=8){
+      ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let x=1;x<COLS;x++){ const gx=offx+x*cell+0.5; ctx.moveTo(gx,offy); ctx.lineTo(gx,offy+ROWS*cell); }
+      for (let y=1;y<ROWS;y++){ const gy=offy+y*cell+0.5; ctx.moveTo(offx,gy); ctx.lineTo(offx+COLS*cell,gy); }
+      ctx.stroke();
+    }
+  }
+
+  function roundRect(c, x, y, w, h, r){
+    c.beginPath();
+    c.moveTo(x+r,y);
+    c.arcTo(x+w,y,x+w,y+h,r);
+    c.arcTo(x+w,y+h,x,y+h,r);
+    c.arcTo(x,y+h,x,y,r);
+    c.arcTo(x,y,x+w,y,r);
+    c.closePath();
+  }
+
+  // ---------- Interaction ----------
+  let dragging=false, paintVal=1;
+
+  function cellAt(px,py){
+    const x = Math.floor((px - offx) / cell);
+    const y = Math.floor((py - offy) / cell);
+    if (x<0||x>=COLS||y<0||y>=ROWS) return null;
+    return {x,y};
+  }
+
+  function paint(px,py,erase=false){
+    const c = cellAt(px,py); if(!c) return;
+    A[idx(c.x,c.y)] = erase ? 0 : 1;
+  }
+
+  canvas.addEventListener('mousedown', (e)=>{
+    const rect = canvas.getBoundingClientRect();
+    const x = (e.clientX-rect.left)*(canvas.width/rect.width);
+    const y = (e.clientY-rect.top)*(canvas.height/rect.height);
+    const c = cellAt(x,y); if(!c) return;
+    const erase = e.shiftKey || A[idx(c.x,c.y)]===1;
+    paintVal = erase?0:1;
+    paint(x,y,erase);
+    dragging=true;
+  });
+  canvas.addEventListener('mousemove', (e)=>{
+    if(!dragging) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = (e.clientX-rect.left)*(canvas.width/rect.width);
+    const y = (e.clientY-rect.top)*(canvas.height/rect.height);
+    paint(x,y,paintVal===0);
+  });
+  window.addEventListener('mouseup', ()=> dragging=false, {passive:true});
+
+  // touch
+  let tActive=false;
+  canvas.addEventListener('touchstart', (e)=>{
+    const rect = canvas.getBoundingClientRect();
+    const t = e.touches[0];
+    const x = (t.clientX-rect.left)*(canvas.width/rect.width);
+    const y = (t.clientY-rect.top)*(canvas.height/rect.height);
+    paint(x,y, false);
+    tActive=true;
+  }, {passive:false});
+  canvas.addEventListener('touchmove', (e)=>{
+    if(!tActive) return;
+    const rect = canvas.getBoundingClientRect();
+    const t = e.touches[0];
+    const x = (t.clientX-rect.left)*(canvas.width/rect.width);
+    const y = (t.clientY-rect.top)*(canvas.height/rect.height);
+    paint(x,y, false);
+  }, {passive:false});
+  canvas.addEventListener('touchend', ()=> tActive=false);
+
+  // buttons
+  playBtn.onclick = ()=> togglePlay();
+  stepBtn.onclick = ()=> { if(!running) { step(); draw(); updateStats(); } };
+  clearBtn.onclick = ()=> { clear(); draw(); updateStats(); };
+  randBtn.onclick = ()=> { randomize(Number(density.value)); draw(); updateStats(); };
+
+  speed.oninput = ()=> { updateSpeedLabel(); interval = 1000/Number(speed.value); saveSettings(); };
+  density.oninput = ()=> { updateDensityLabel(); saveSettings(); };
+  wrapChk.onchange = ()=> saveSettings();
+  gridChk.onchange = ()=> { saveSettings(); draw(); };
+
+  resizeBtn.onclick = ()=>{
+    const nc = clamp(Number(colsInp.value||COLS), 10, 400);
+    const nr = clamp(Number(rowsInp.value||ROWS), 10, 300);
+    if (nc===COLS && nr===ROWS) return;
+    const N = new Uint8Array(nc*nr);
+    // copy centered
+    const ox = Math.floor((nc - COLS)/2), oy = Math.floor((nr - ROWS)/2);
+    for (let y=0;y<ROWS;y++){
+      for (let x=0;x<COLS;x++){
+        const nx = x+ox, ny = y+oy;
+        if (nx>=0&&nx<nc&&ny>=0&&ny<nr) N[ny*nc+nx] = A[idx(x,y)];
+      }
+    }
+    COLS=nc; ROWS=nr; A=N; B = new Uint8Array(COLS*ROWS); gen=0; pop=A.reduce((s,v)=>s+v,0);
+    saveSettings(); draw(); updateStats();
+  };
+
+  window.addEventListener('keydown', (e)=>{
+    if (e.code==='Space'){ e.preventDefault(); togglePlay(); }
+    else if (e.key==='s' || e.key==='S'){ e.preventDefault(); if(!running){ step(); draw(); updateStats(); } }
+    else if (e.key==='c' || e.key==='C'){ e.preventDefault(); clear(); draw(); updateStats(); }
+    else if (e.key==='r' || e.key==='R'){ e.preventDefault(); randomize(Number(density.value)); draw(); updateStats(); }
+  });
+
+  // presets
+  document.querySelectorAll('[data-p]').forEach(b=>{
+    b.addEventListener('click', ()=>{
+      const name = b.getAttribute('data-p');
+      stampPreset(name);
+      draw(); updateStats();
+    });
+  });
+
+  function togglePlay(){
+    running = !running;
+    playBtn.textContent = running ? '⏸ Pause' : '▶ Play';
+  }
+
+  function updateSpeedLabel(){ speedLbl.textContent = `${speed.value}/s`; }
+  function updateDensityLabel(){ densLbl.textContent = `${density.value}%`; }
+
+  function updateStats(){
+    statsVal.textContent = `Gen ${gen} • Pop ${pop}`;
+    fpsVal.textContent = fpsSmoothed ? `${fpsSmoothed.toFixed(1)} fps` : '— fps';
+  }
+
+  // ---------- Loop ----------
+  function frame(now){
+    const dt = now - last; last = now;
+    if (running){
+      acc += dt;
+      const stepMs = interval;
+      while (acc >= stepMs){
+        step();
+        acc -= stepMs;
+      }
+      // FPS EMA
+      const inst = 1000/Math.max(dt,1e-3);
+      fpsSmoothed = fpsSmoothed==null ? inst : (0.9*fpsSmoothed + 0.1*inst);
+    }
+    draw();
+    updateStats();
+    requestAnimationFrame(frame);
+  }
+
+  // ---------- Presets ----------
+  function stampPreset(name){
+    const cx = Math.floor(COLS/2), cy = Math.floor(ROWS/2);
+    const P = [];
+    if (name==='glider'){
+      P.push([0,1],[1,2],[2,0],[2,1],[2,2]);
+    } else if (name==='lwss'){ // Lightweight spaceship (5x4)
+      const coords = [
+        [0,1],[0,3],[1,0],[2,0],[3,0],[4,0],[4,3],[1,4],[2,4],[3,4]
+      ];
+      // rotate to a nicer orientation
+      coords.forEach(([x,y])=>P.push([x-2,y-2]));
+    } else if (name==='pulsar'){ // 13x13
+      const ps = [[2,0],[3,0],[4,0],[8,0],[9,0],[10,0],
+                  [0,2],[5,2],[7,2],[12,2],
+                  [0,3],[5,3],[7,3],[12,3],
+                  [0,4],[5,4],[7,4],[12,4],
+                  [2,5],[3,5],[4,5],[8,5],[9,5],[10,5],
+                  [2,7],[3,7],[4,7],[8,7],[9,7],[10,7],
+                  [0,8],[5,8],[7,8],[12,8],
+                  [0,9],[5,9],[7,9],[12,9],
+                  [0,10],[5,10],[7,10],[12,10],
+                  [2,12],[3,12],[4,12],[8,12],[9,12],[10,12]];
+      ps.forEach(([x,y])=>P.push([x-6,y-6]));
+    } else if (name==='gosper'){ // Gosper glider gun
+      const g = `x=36,y=9
+      24bo11b$
+      22bobo11b$
+      12bo10b2o12b$
+      11bobo9b2o12b$
+      bo9bobo23b$
+      bobo8bo25b$
+      b2o34b$
+      24b2o10b$
+      24b2o!`;
+      // tiny RLE parser for this gun only
+      const lines = g.split('\n').slice(1).map(s=>s.trim());
+      let x=0,y=0;
+      for(const ln of lines){
+        if(ln.endsWith('!')) break;
+        let run='', i=0;
+        while(i<ln.length){
+          const ch = ln[i++];
+          if (/\d/.test(ch)){ run+=ch; continue; }
+          const n = run?parseInt(run,10):1; run='';
+          if (ch==='b'){ x+=n; }
+          else if (ch==='o'){ for(let k=0;k<n;k++) { P.push([x, y]); x++; } }
+          else if (ch==='$'){ y++; x=0; }
+        }
+      }
+      // center-ish shift
+      const dx = -18, dy = -4;
+      for (let i=0;i<P.length;i++){ P[i][0]+=dx; P[i][1]+=dy; }
+    }
+    for (const [dx,dy] of P){
+      const x = cx+dx, y = cy+dy;
+      if (x>=0&&x<COLS&&y>=0&&y<ROWS) A[idx(x,y)] = 1;
+    }
+  }
+
+  // ---------- Kickoff ----------
+  randomize(Number(density.value)/2); // start lightly alive
+  draw(); updateStats();
+  requestAnimationFrame(frame);
+  window.addEventListener('resize', draw);
+
+})();
+</script>
+</body>
+</html>
