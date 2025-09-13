@@ -1,23 +1,352 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <title>Welcome</title>
-  <style>
-    body { font-family: sans-serif; background:#0b0f17; color:#eee; display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; margin:0; }
-    h1 { margin-bottom: 1rem; }
-    nav a { display:block; margin:0.5rem; padding:0.6rem 1rem; background:#3ff0c1; color:#08111a; text-decoration:none; border-radius:8px; font-weight:bold; }
-    nav a:hover { background:#2ecda4; }
-  </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Cave Diver — MVP</title>
+<style>
+  :root{
+    --bg:#0b0f17; --panel:#111929; --text:#e7ecf3; --muted:#9fb0c3;
+    --rock1:#243552; --rock2:#2a3d61; --gold:#ffd24a; --spike:#ff5c7a; --ladder:#b5895a; --player:#3ff0c1; --exit:#77a6ff;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0; background:radial-gradient(1000px 700px at 70% 20%, #101a2a 0, #0b0f17 55%, #070a10 100%);
+    color:var(--text); font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;
+    display:flex; flex-direction:column; align-items:center; gap:12px; padding:14px;
+  }
+  header{width:min(1100px,96vw); display:flex; align-items:center; justify-content:space-between}
+  h1{font-size:18px; margin:0}
+  .muted{color:var(--muted); font-size:13px}
+  .card{
+    width:min(1100px,96vw); background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.02));
+    border:1px solid rgba(255,255,255,.08); border-radius:16px; padding:12px; box-shadow:0 20px 60px rgba(0,0,0,.45);
+  }
+  canvas{width:100%; height:auto; display:block; border-radius:12px; background:#0a1120}
+  footer{color:var(--muted); font-size:12px; text-align:center; margin-top:6px}
+  a{color:#9cd1ff}
+</style>
 </head>
 <body>
-  <h1>Welcome to Jake’s Test Server</h1>
-  <nav>
-    <a href="game.html">▶ Play Click Timing Game</a>
-    <a href="snake.html">▶ Snake Game</a>
-    <a href="life.html">▶ Coneway's Life Simulation</a>
-    <a href="powell.html">📝 Powell</a>
-    <a href="john.html">📝 John</a>
-  </nav>
+  <header>
+    <h1>Cave Diver — MVP</h1>
+    <div class="muted">A/D or ◀▶ move • W/▲ jump • P pause • N new run</div>
+  </header>
+  <div class="card">
+    <canvas id="game" width="1280" height="720" aria-label="Cave Diver game"></canvas>
+    <footer><a href="index.html">← Back to Home</a></footer>
+  </div>
+
+<script>
+(() => {
+  // ======== SAFE HELPERS (no fancy Canvas APIs) ========
+  function rr(ctx, x, y, w, h, r){ // rounded-rect path (avoid ctx.roundRect)
+    r = Math.max(2, Math.min(r, Math.min(w,h)/2));
+    ctx.beginPath();
+    ctx.moveTo(x+r, y);
+    ctx.lineTo(x+w-r, y);
+    ctx.quadraticCurveTo(x+w, y, x+w, y+r);
+    ctx.lineTo(x+w, y+h-r);
+    ctx.quadraticCurveTo(x+w, y+h, x+w-r, y+h);
+    ctx.lineTo(x+r, y+h);
+    ctx.quadraticCurveTo(x, y+h, x, y+h-r);
+    ctx.lineTo(x, y+r);
+    ctx.quadraticCurveTo(x, y, x+r, y);
+    ctx.closePath();
+  }
+
+  // ======== CONFIG ========
+  const COLS = 64, ROWS = 36; // 16:9 grid
+  const G = 0.035, JUMP = -0.70, MOVE = 0.18, AIR_CTRL = 0.11, MAX_FALL = 1.2;
+  const TILE = { AIR:0, ROCK:1, GOLD:2, SPIKE:3, EXIT:4, START:5 };
+
+  // ======== STATE ========
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  let cell=16, ox=0, oy=0;
+  let map = new Uint8Array(COLS*ROWS);
+  let player = null;
+  let level = 1, gold = 0, high = Number(localStorage.getItem('cavediver_high')||0);
+  let paused=false, gameOver=false, last=performance.now(), acc=0;
+  const keys = new Set();
+
+  // ======== INPUT ========
+  window.addEventListener('keydown', e=>{
+    const k = e.key.toLowerCase();
+    if (['arrowleft','arrowright','arrowup','a','d','w','p','n'].includes(k)) e.preventDefault();
+    keys.add(k);
+    if (k==='p'){ paused=!paused; }
+    if (k==='n'){ resetRun(); }
+  });
+  window.addEventListener('keyup', e=> keys.delete(e.key.toLowerCase()));
+
+  // ======== MAP UTILS ========
+  const idx = (x,y)=> y*COLS + x;
+  const inb = (x,y)=> (x>=0 && x<COLS && y>=0 && y<ROWS);
+  const tAt = (x,y)=> inb(x,y) ? map[idx(x|0,y|0)] : TILE.ROCK;
+  const setT = (x,y,t)=> { if(inb(x,y)) map[idx(x,y)] = t; };
+
+  // ======== GENERATION (robust) ========
+  function genLevel(){
+    // base noise
+    for(let y=0;y<ROWS;y++){
+      for(let x=0;x<COLS;x++){
+        const wall = (x===0||y===0||x===COLS-1||y===ROWS-1);
+        map[idx(x,y)] = (Math.random()<0.48 || wall) ? TILE.ROCK : TILE.AIR;
+      }
+    }
+    // smooth 5 passes
+    for(let pass=0; pass<5; pass++){
+      const copy = map.slice();
+      for(let y=1;y<ROWS-1;y++){
+        for(let x=1;x<COLS-1;x++){
+          let n=0;
+          for(let yy=-1;yy<=1;yy++) for(let xx=-1;xx<=1;xx++){
+            if(xx===0 && yy===0) continue;
+            if(copy[idx(x+xx,y+yy)]!==TILE.AIR) n++;
+          }
+          map[idx(x,y)] = (n>4) ? TILE.ROCK : (n<4 ? TILE.AIR : copy[idx(x,y)]);
+        }
+      }
+    }
+    // ensure start & exit and a crude tunnel between
+    const opens=[];
+    for(let y=1;y<ROWS-1;y++) for(let x=1;x<COLS-1;x++) if(map[idx(x,y)]===TILE.AIR) opens.push({x,y});
+    if (opens.length < 100){ return genLevel(); }
+
+    opens.sort((a,b)=>(a.x+a.y)-(b.x+b.y));
+    const start = opens[0];
+    let exit = start, best=-1;
+    for(const o of opens){
+      const d = Math.hypot(o.x-start.x, o.y-start.y);
+      if(d>best){best=d; exit=o;}
+    }
+    carveTunnel(start, exit);
+
+    setT(start.x, start.y, TILE.START);
+    setT(exit.x, exit.y, TILE.EXIT);
+
+    // decorate (gold/spikes on floors)
+    for(let y=1;y<ROWS-1;y++){
+      for(let x=1;x<COLS-1;x++){
+        if (map[idx(x,y)]!==TILE.AIR) continue;
+        const below = tAt(x,y+1);
+        if (below===TILE.ROCK && Math.random()<0.10) setT(x,y, TILE.GOLD);
+        else if (below===TILE.ROCK && Math.random()<0.03) setT(x,y, TILE.SPIKE);
+      }
+    }
+
+    // place player
+    player = { x:start.x+0.1, y:start.y+0.1, w:0.8, h:0.9, vx:0, vy:0, onGround:false, inv:0, hp:4, facing:1 };
+  }
+
+  function carveTunnel(a,b){
+    let x=a.x, y=a.y, steps=0, max=COLS*ROWS*2;
+    while ((x!==b.x || y!==b.y) && steps++<max){
+      setT(x,y,TILE.AIR);
+      // widen
+      for(let yy=-1;yy<=1;yy++) for(let xx=-1;xx<=1;xx++){
+        if (!inb(x+xx,y+yy)) continue;
+        if (Math.random()<0.65) setT(x+xx,y+yy,TILE.AIR);
+      }
+      // advance
+      if (Math.random()<0.6){
+        x += (b.x>x) ? 1 : (b.x<x ? -1 : 0);
+      } else {
+        y += (b.y>y) ? 1 : (b.y<y ? -1 : 0);
+      }
+    }
+  }
+
+  // ======== PHYSICS ========
+  function solidAt(x,y){
+    const t = tAt(x,y);
+    return (t===TILE.ROCK);
+  }
+  function moveAABB(e, ax, ay){
+    // horizontal
+    e.x += ax;
+    if (collideTiles(e)){ e.x -= ax; e.vx = 0; }
+    // vertical
+    e.y += ay;
+    const hit = collideTiles(e);
+    if (hit){ e.y -= ay; e.vy = 0; if (ay>0) e.onGround = true; }
+  }
+  function collideTiles(aabb){
+    const x0 = Math.floor(aabb.x), x1 = Math.floor(aabb.x + aabb.w - 1e-6);
+    const y0 = Math.floor(aabb.y), y1 = Math.floor(aabb.y + aabb.h - 1e-6);
+    for(let y=y0; y<=y1; y++){
+      for(let x=x0; x<=x1; x++){
+        if (solidAt(x,y)) return true;
+      }
+    }
+    return false;
+  }
+
+  // ======== GAME FLOW ========
+  function resetRun(){
+    level = 1; gold = 0; gameOver = false; paused = false;
+    nextLevel();
+  }
+  function nextLevel(){
+    genLevel();
+  }
+
+  // ======== RENDER LAYOUT ========
+  function fitCanvas(){
+    const dpr = Math.max(1, Math.min(2, window.devicePixelRatio||1));
+    const cssW = canvas.clientWidth;
+    const cssH = Math.round(cssW * 9/16);
+    canvas.style.height = cssH + 'px';
+    const w = Math.round(cssW * dpr), h = Math.round(cssH * dpr);
+    if (canvas.width!==w || canvas.height!==h){ canvas.width=w; canvas.height=h; }
+    cell = Math.floor(Math.min(w/COLS, h/ROWS));
+    const gw = cell*COLS, gh = cell*ROWS;
+    ox = Math.floor((w-gw)/2);
+    oy = Math.floor((h-gh)/2);
+  }
+
+  // ======== UPDATE ========
+  function update(dt){
+    if (paused || gameOver) return;
+
+    // input
+    const left  = keys.has('arrowleft') || keys.has('a');
+    const right = keys.has('arrowright') || keys.has('d');
+    const up    = keys.has('arrowup') || keys.has('w');
+
+    player.onGround = false;
+
+    // horizontal accel
+    const accel = player.onGround ? MOVE : AIR_CTRL;
+    if (left && !right){ player.vx = Math.max(player.vx - accel, -MOVE); player.facing = -1; }
+    else if (right && !left){ player.vx = Math.min(player.vx + accel, MOVE); player.facing = 1; }
+    else { player.vx *= player.onGround?0.75:0.98; if (Math.abs(player.vx)<0.01) player.vx=0; }
+
+    // jump
+    if (up && player.onGround){ player.vy = JUMP; player.onGround=false; }
+
+    // gravity
+    player.vy += G;
+    player.vy = Math.min(player.vy, MAX_FALL);
+
+    // move
+    moveAABB(player, player.vx, 0);
+    moveAABB(player, 0, player.vy);
+
+    // gold/spike/exit interactions
+    const px0 = Math.floor(player.x), px1 = Math.floor(player.x+player.w-1e-6);
+    const py0 = Math.floor(player.y), py1 = Math.floor(player.y+player.h-1e-6);
+    for(let y=py0;y<=py1;y++){
+      for(let x=px0;x<=px1;x++){
+        const t = tAt(x,y);
+        if (t===TILE.GOLD){ setT(x,y,TILE.AIR); gold += 10; }
+        if (t===TILE.SPIKE && player.inv<=0){ player.inv=60; player.hp=(player.hp||4)-1; }
+        if (t===TILE.EXIT){
+          level++; nextLevel(); return;
+        }
+      }
+    }
+    if (player.inv>0) player.inv--;
+
+    // death
+    if ((player.hp||4) <= 0){
+      gameOver = true;
+      high = Math.max(high, gold);
+      localStorage.setItem('cavediver_high', high);
+    }
+  }
+
+  // ======== DRAW ========
+  function draw(){
+    fitCanvas();
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+
+    // frame ring
+    ctx.strokeStyle = 'rgba(63,240,193,0.08)'; ctx.lineWidth = 16;
+    rr(ctx, ox-10, oy-10, cell*COLS+20, cell*ROWS+20, 14); ctx.stroke();
+
+    // tiles
+    for(let y=0;y<ROWS;y++){
+      for(let x=0;x<COLS;x++){
+        const t = map[idx(x,y)]; if (t===TILE.AIR || t===TILE.START) continue;
+        const px = ox + x*cell, py = oy + y*cell;
+        if (t===TILE.ROCK){
+          ctx.fillStyle = ((x+y)&1) ? '#243552' : '#2a3d61';
+          ctx.fillRect(px,py,cell,cell);
+        } else if (t===TILE.GOLD){
+          ctx.fillStyle = '#ffd24a';
+          rr(ctx, px+cell*0.22, py+cell*0.38, cell*0.56, cell*0.4, Math.max(2,cell*0.12)); ctx.fill();
+        } else if (t===TILE.SPIKE){
+          ctx.fillStyle = '#0f1626'; ctx.fillRect(px,py,cell,cell*0.6);
+          ctx.fillStyle = '#ff5c7a';
+          for(let i=0;i<3;i++){
+            ctx.beginPath();
+            ctx.moveTo(px + i*cell/3, py+cell*0.6);
+            ctx.lineTo(px + i*cell/3 + cell/6, py+cell*0.2);
+            ctx.lineTo(px + i*cell/3 + cell/3, py+cell*0.6);
+            ctx.fill();
+          }
+        } else if (t===TILE.EXIT){
+          ctx.fillStyle = '#284a7f'; rr(ctx, px+cell*0.1, py+cell*0.02, cell*0.8, cell*0.96, Math.max(3,cell*0.18)); ctx.fill();
+          ctx.fillStyle = '#77a6ff'; rr(ctx, px+cell*0.22, py+cell*0.22, cell*0.56, cell*0.6, Math.max(2,cell*0.12)); ctx.fill();
+        }
+      }
+    }
+
+    // player
+    if (player){
+      const px = ox + player.x*cell, py = oy + player.y*cell;
+      ctx.fillStyle = (player.inv>0) ? 'rgba(63,240,193,0.55)' : '#3ff0c1';
+      rr(ctx, px, py, player.w*cell, player.h*cell, Math.max(4,cell*0.2)); ctx.fill();
+    }
+
+    // HUD
+    ctx.fillStyle='rgba(0,0,0,0.35)'; ctx.fillRect(ox, oy-34, cell*COLS, 28);
+    ctx.fillStyle='#e7ecf3'; ctx.font='600 15px ui-sans-serif'; ctx.textAlign='left';
+    ctx.fillText(`Lv ${level}`, ox+12, oy-14);
+    ctx.fillText(`Gold ${gold}`, ox+72, oy-14);
+    ctx.fillText(`High ${Math.max(high,gold)}`, ox+162, oy-14);
+    ctx.fillText(`HP ${(player&&player.hp!=null)?player.hp:4}`, ox+282, oy-14);
+
+    if (paused){ overlay('Paused — P to resume'); }
+    if (gameOver){ overlay('Game Over — N for new run'); }
+  }
+
+  function overlay(text){
+    ctx.fillStyle='rgba(0,0,0,0.45)';
+    const w = cell*COLS*0.7, h = cell*ROWS*0.25;
+    const x = ox + (cell*COLS-w)/2, y = oy + (cell*ROWS-h)/2;
+    rr(ctx, x, y, w, h, 12); ctx.fill();
+    ctx.fillStyle='#e7ecf3'; ctx.textAlign='center'; ctx.font='700 20px ui-sans-serif';
+    ctx.fillText(text, ox+cell*COLS/2, oy+cell*ROWS/2+6);
+  }
+
+  // ======== MAIN LOOP (with on-canvas error) ========
+  function frame(now){
+    try{
+      const dt = Math.min(3, (now - last) / 16.6667); last = now;
+      update(dt);
+      draw();
+      requestAnimationFrame(frame);
+    }catch(err){
+      // draw fatal error on canvas so you see it without devtools
+      ctx.fillStyle = '#1e1e1e'; ctx.fillRect(0,0,canvas.width,canvas.height);
+      ctx.fillStyle = '#ff6b6b'; ctx.font='16px ui-sans-serif';
+      ctx.fillText('Fatal error: ' + (err && err.message ? err.message : err), 20, 30);
+      console.error(err);
+    }
+  }
+
+  // ======== BOOT ========
+  function boot(){
+    resetRun();
+    requestAnimationFrame(t=>{ last=t; frame(t); });
+  }
+  window.addEventListener('resize', draw);
+  boot();
+})();
+</script>
 </body>
 </html>
