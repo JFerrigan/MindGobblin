@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.WebUtilities; // for QueryHelpers
+using Microsoft.AspNetCore.HttpOverrides;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -23,7 +24,6 @@ builder.WebHost.ConfigureKestrel(k =>
          k.ListenLocalhost(8080);
     }
 });
-
 
 // ---- CORS ----
 builder.Services.AddCors(options =>
@@ -82,6 +82,10 @@ var LOCAL_GENRE_SEEDS = new[]
 };
 
 var app = builder.Build();
+
+app.UseForwardedHeaders(new ForwardedHeadersOptions {
+    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
+});
 
 app.UseCors();
 app.UseDefaultFiles();
@@ -461,7 +465,7 @@ app.MapPost("/api/create-random-playlist", async (HttpContext ctx) =>
                             .OrderBy(_ => BitConverter.ToUInt32(RandomNumberGenerator.GetBytes(4)))
                             .ToList();
 
-                        var artistSample = artistIds.Take(Math.Max(5, Math.Min(15, count / 2))).ToList();
+                        var artistSample = artistIds.Take(Math.Max(5, Math.Min(150, count / 2))).ToList();
 
                         foreach (var artistId in artistSample)
                         {

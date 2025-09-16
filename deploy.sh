@@ -7,6 +7,7 @@ REMOTE_USER="jake"
 REMOTE_HOST="165.22.233.151"
 CONTAINER_NAME="jake-srv"
 PORT=8080  # container port your app listens on
+export PROD_SPOTIFY_REDIRECT_URI=https://mindgobblin.com/callback
 # =================
 
 echo ">> Ensuring buildx is ready"
@@ -35,6 +36,9 @@ ssh -o StrictHostKeyChecking=accept-new "$REMOTE_USER@$REMOTE_HOST" bash -s <<EO
   echo ">> Starting new container"
   docker run -d --restart unless-stopped --name "$CONTAINER_NAME" \
     -e ASPNETCORE_URLS=http://0.0.0.0:$PORT \
+    -e SPOTIFY_CLIENT_ID=$SPOTIFY_CLIENT_ID \
+    -e SPOTIFY_CLIENT_SECRET=$SPOTIFY_CLIENT_SECRET  \
+    -e SPOTIFY_REDIRECT_URI=$PROD_SPOTIFY_REDIRECT_URI \
     -p 127.0.0.1:$PORT:$PORT \
     "$IMAGE"
 
