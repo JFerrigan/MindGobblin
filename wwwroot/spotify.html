@@ -1,0 +1,206 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>MindGobblin • Spotify Playlist</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; max-width: 820px; margin: 40px auto; padding: 0 16px; background:#0b0f17; color:#eee; }
+    .card { border: 1px solid #1f2a37; border-radius: 12px; padding: 16px; margin: 16px 0; background:#0f1623; }
+    .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    .muted { color: #9aa4b2; }
+    button { padding: 8px 12px; border-radius: 8px; border: 1px solid #334155; background: #3ff0c1; color:#08111a; cursor: pointer; font-weight: 700; }
+    button:hover { filter: brightness(0.95); }
+    input, textarea, select { width: 100%; padding: 8px; border-radius: 8px; border: 1px solid #334155; background:#0b1220; color:#eee; }
+    a { color:#3ff0c1; }
+    .grid { display:grid; grid-template-columns: 1fr 1fr; gap:16px; }
+    @media (max-width: 700px){ .grid { grid-template-columns: 1fr; } }
+    .small { width:auto; min-width: 140px; }
+  </style>
+</head>
+<body>
+  <h1>Spotify Playlist Maker</h1>
+  <p class="muted">Sign in with Spotify, then create a playlist in <em>your</em> account.</p>
+
+  <div class="card">
+    <div id="status" class="muted">Checking login…</div>
+    <div class="row" id="loginRow" style="display:none;">
+      <a href="/login"><button>Log in with Spotify</button></a>
+    </div>
+    <div id="meRow" style="display:none;">
+      <div>Signed in as <b id="meName"></b></div>
+      <form id="createForm" class="card">
+        <h3>Manual playlist</h3>
+        <div class="grid">
+          <label>Playlist name<br><input name="name" placeholder="My Playlist"></label>
+          <label>Description<br><input name="description" placeholder="Created by MindGobblin"></label>
+        </div>
+        <label style="display:block;margin-top:8px;"><input type="checkbox" name="isPublic"> Make public</label><br>
+        <label>Track URIs or URLs (one per line, optional)<br>
+          <textarea name="uris" rows="5" placeholder="spotify:track:4uLU6hMCjMI75M1A2tKUQC"></textarea>
+        </label><br>
+        <button type="submit">Create Playlist</button>
+      </form>
+
+      <form id="genreForm" class="card">
+        <h3>Random by genre</h3>
+        <div class="grid">
+          <label>Genre<br>
+            <select name="genre" id="genreSelect">
+              <option value="" disabled selected>Loading genres…</option>
+            </select>
+          </label>
+          <label>How many tracks (1–100)<br>
+            <input type="number" name="count" min="1" max="100" value="25">
+          </label>
+        </div>
+        <div class="grid" style="margin-top:8px;">
+          <label>Playlist name (optional)<br><input name="name" placeholder="e.g., 🎲 rock mix — tonight"></label>
+          <label>Description (optional)<br><input name="description" placeholder="Random picks via MindGobblin"></label>
+        </div>
+        <label style="display:block;margin-top:8px;"><input type="checkbox" name="isPublic"> Make public</label><br>
+        <div class="row">
+          <button type="submit" class="small">Create Random Playlist</button>
+          <button type="button" id="reloadGenres" class="small">Reload Genres</button>
+        </div>
+      </form>
+
+      <form method="post" action="/logout" class="card" style="display:inline-block;">
+        <button>Log out</button>
+      </form>
+    </div>
+  </div>
+
+  <div id="result"></div>
+
+  <p><a href="/">← Back to Home</a></p>
+
+  <script>
+    const statusEl = document.getElementById('status');
+    const loginRow = document.getElementById('loginRow');
+    const meRow = document.getElementById('meRow');
+    const genreSelect = document.getElementById('genreSelect');
+
+    async function check() {
+      const r = await fetch('/api/me');
+      const j = await r.json();
+      if (j.loggedIn) {
+        statusEl.textContent = 'You are logged in.';
+        loginRow.style.display = 'none';
+        meRow.style.display = '';
+        document.getElementById('meName').textContent = j.me?.display_name || j.me?.id || 'you';
+        await loadGenres();
+      } else {
+        statusEl.textContent = 'You are not logged in.';
+        loginRow.style.display = '';
+        meRow.style.display = 'none';
+      }
+    }
+
+    
+  async function loadGenres() {
+    try {
+      const resp = await fetch('/api/genres');
+      const text = await resp.text(); // read text first so we can show errors
+      if (!resp.ok) {
+        genreSelect.innerHTML = `<option value="" disabled selected>Failed (${resp.status})</option>`;
+        console.warn('Genres error:', text);
+        return;
+      }
+      let data;
+      try { data = JSON.parse(text); } catch (e) {
+        genreSelect.innerHTML = '<option value="" disabled selected>Bad JSON</option>';
+        console.warn('Genres JSON parse error:', e, text);
+        return;
+      }
+      const list = Array.isArray(data.genres) ? data.genres : [];
+      genreSelect.innerHTML = '';
+      if (!list.length) {
+        genreSelect.innerHTML = '<option value="" disabled selected>No genres available</option>';
+        return;
+      }
+      const frag = document.createDocumentFragment();
+      const placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = 'Pick a genre…';
+      placeholder.disabled = true;
+      placeholder.selected = true;
+      frag.appendChild(placeholder);
+
+      list.sort((a,b)=>a.localeCompare(b));
+      for (const g of list) {
+        const opt = document.createElement('option');
+        opt.value = g;
+        opt.textContent = g;
+        frag.appendChild(opt);
+      }
+      genreSelect.appendChild(frag);
+    } catch (err) {
+      genreSelect.innerHTML = '<option value="" disabled selected>Failed to load</option>';
+      console.error('Genres fetch failed:', err);
+    }
+  }
+
+    document.getElementById('reloadGenres').addEventListener('click', loadGenres);
+
+    document.getElementById('createForm')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const payload = {
+        name: fd.get('name') || undefined,
+        description: fd.get('description') || undefined,
+        isPublic: !!fd.get('isPublic'),
+        uris: (fd.get('uris') || '').toString().split('\n').map(s => s.trim()).filter(Boolean)
+      };
+      const r = await fetch('/api/create-playlist', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(payload)
+      });
+      renderResult(r);
+    });
+
+    document.getElementById('genreForm')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const genre = fd.get('genre');
+      if (!genre) {
+        alert('Pick a genre first.');
+        return;
+      }
+      const payload = {
+        genre,
+        count: Number(fd.get('count')) || 25,
+        name: fd.get('name') || undefined,
+        description: fd.get('description') || undefined,
+        isPublic: !!fd.get('isPublic')
+      };
+      const r = await fetch('/api/create-random-playlist', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(payload)
+      });
+      renderResult(r);
+    });
+
+    async function renderResult(resp) {
+      const out = document.getElementById('result');
+      if (!resp.ok) {
+        const t = await resp.text();
+        out.innerHTML = `<div class="card"><b>Failed:</b><pre>${escapeHtml(t)}</pre></div>`;
+        return;
+      }
+      const j = await resp.json();
+      const id = j.playlist.id;
+      const url = `https://open.spotify.com/playlist/${id}`;
+      out.innerHTML = `<div class="card">✅ Created: <a href="${url}" target="_blank" rel="noopener">${j.playlist.name}</a></div>`;
+    }
+
+    function escapeHtml(s) {
+      return s.replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+    }
+
+    check();
+  </script>
+</body>
+</html>

@@ -3,6 +3,11 @@
 ##
 ## Get latest from `dotnet new gitignore`
 
+
+localDockerRun.sh
+
+
+
 # dotenv files
 .env
 
