@@ -65,12 +65,15 @@ jobs:
             echo "Pulling image ${IMAGE}:${TAG}"
             docker pull "${IMAGE}:${TAG}"
 
-            echo "Stopping old container (if any)"
+            echo "Stopping old container (if any)"I
             docker rm -f "${CONTAINER}" >/dev/null 2>&1 || true
 
             echo "Starting new container"
             docker run -d --restart unless-stopped --name "${CONTAINER}" \
               -e ASPNETCORE_URLS="http://0.0.0.0:${PORT}" \
+              -e SPOTIFY_CLIENT_ID="${{ secrets.SPOTIFY_CLIENT_ID }}" \
+              -e SPOTIFY_CLIENT_SECRET="${{ secrets.SPOTIFY_CLIENT_SECRET }}" \
+              -e SPOTIFY_REDIRECT_URI="${{ secrets.SPOTIFY_REDIRECT_URI }}" \
               -p 127.0.0.1:${PORT}:${PORT} \
               "${IMAGE}:${TAG}"
 

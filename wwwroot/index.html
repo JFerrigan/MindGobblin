@@ -2,22 +2,96 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Welcome</title>
+  <title>MindGobblin</title>
+  <link rel="icon" type="image/png" href="img/mindgoblin.png">
   <style>
-    body { font-family: sans-serif; background:#0b0f17; color:#eee; display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; margin:0; }
-    h1 { margin-bottom: 1rem; }
-    nav a { display:block; margin:0.5rem; padding:0.6rem 1rem; background:#3ff0c1; color:#08111a; text-decoration:none; border-radius:8px; font-weight:bold; }
-    nav a:hover { background:#2ecda4; }
+    :root {
+      --bg: #0b0f17;
+      --fg: #eaeaea;
+      --accent: #3ff0c1;
+      --accent-dark: #2ecda4;
+      --card-bg: #151c27;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 2rem;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 2rem;
+    }
+
+    header img {
+      width: 160px;
+      height: 160px;
+      border-radius: 50%;
+      margin-bottom: 1rem;
+      box-shadow: 0 0 20px rgba(63, 240, 193, 0.8);
+    }
+
+    h1 {
+      margin: 0.2rem 0;
+      font-size: 2.5rem;
+      letter-spacing: 1px;
+    }
+
+    nav {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 1rem;
+      width: 100%;
+      max-width: 700px;
+    }
+
+    nav a {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.2rem;
+      background: var(--card-bg);
+      border-radius: 12px;
+      color: var(--fg);
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 1rem;
+      transition: all 0.2s ease;
+      border: 1px solid transparent;
+    }
+
+    nav a:hover {
+      background: var(--accent-dark);
+      color: #08111a;
+      border-color: var(--accent);
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    }
   </style>
 </head>
 <body>
-  <h1>Welcome to Jake’s Test Server</h1>
+  <header>
+    <img src="img/mindgoblin.png" alt="Mind Goblin Icon">
+    <h1>Welcome to MindGobblin</h1>
+    <p>A collection of Jake’s experiments & games</p>
+  </header>
+
   <nav>
-    <a href="game.html">▶ Play Click Timing Game</a>
-    <a href="snake.html">▶ Snake Game</a>
-    <a href="life.html">▶ Coneway's Life Simulation</a>
-    <a href="text-story.html">▶ Echoes of the Heartforge</a>
     <a href="spotify.html">🎧 Spotify Playlist Maker</a>
+    <a href="game.html">▶ Click Timing Game</a>
+    <a href="snake.html">▶ Snake Game</a>
+    <a href="life.html">▶ Conway’s Life Simulation</a>
+    <a href="text-story.html">▶ Echoes of the Heartforge</a>
     <a href="powell.html">📝 Powell</a>
     <a href="john.html">📝 John</a>
   </nav>
