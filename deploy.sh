@@ -39,6 +39,9 @@ ssh -o StrictHostKeyChecking=accept-new "$REMOTE_USER@$REMOTE_HOST" bash -s <<EO
     -e SPOTIFY_CLIENT_ID=$SPOTIFY_CLIENT_ID \
     -e SPOTIFY_CLIENT_SECRET=$SPOTIFY_CLIENT_SECRET  \
     -e SPOTIFY_REDIRECT_URI=$PROD_SPOTIFY_REDIRECT_URI \
+    -e PLACE_DATA_PATH="/data/place-board.bin" \
+    -v /srv/mindgobblin/data:/data \
+    -v /srv/mindgobblin/dp-keys:/app/keys \
     -p 127.0.0.1:$PORT:$PORT \
     "$IMAGE"
 

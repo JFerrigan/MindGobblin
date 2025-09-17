@@ -697,7 +697,194 @@ app.MapPost("/logout", (HttpContext ctx) =>
     return Results.Redirect("/spotify.html");
 });
 
+//PLACE STUFF
+// ---------- r/place endpoints ----------
+
+// Meta
+app.MapGet("/api/place/meta", () =>
+{
+    return Results.Json(new {
+        width = PlaceBoard.Width,
+        height = PlaceBoard.Height,
+        palette = PlaceBoard.Palette,
+        cooldownSeconds = 1,
+        since = PlaceBoard.LastTs
+    });
+});
+
+// Whole board (base64-encoded raw bytes of color indices)
+app.MapGet("/api/place/board", () =>
+{
+    lock (PlaceBoard.Gate)
+    {
+        var base64 = Convert.ToBase64String(PlaceBoard.Pixels);
+        return Results.Text(base64, "text/plain", Encoding.UTF8);
+    }
+});
+
+// Incremental updates since a timestamp
+app.MapGet("/api/place/updates", (long? since) =>
+{
+    var s = since ?? 0;
+    lock (PlaceBoard.Gate)
+    {
+        var ups = PlaceBoard.Recent.Where(u => u.Ts > s).ToArray();
+        return Results.Json(new { since = PlaceBoard.LastTs, updates = ups });
+    }
+});
+
+// Place a single pixel
+app.MapPost("/api/place/set", async (HttpContext ctx) =>
+{
+    // parse body
+    using var doc = await JsonDocument.ParseAsync(ctx.Request.Body);
+    var root = doc.RootElement;
+
+    if (!root.TryGetProperty("x", out var xEl) || !root.TryGetProperty("y", out var yEl) || !root.TryGetProperty("colorIndex", out var cEl))
+        return Results.BadRequest(new { error = "x, y, colorIndex required" });
+
+    int x = xEl.GetInt32();
+    int y = yEl.GetInt32();
+    int ci = cEl.GetInt32();
+
+    if (x < 0 || y < 0 || x >= PlaceBoard.Width || y >= PlaceBoard.Height)
+        return Results.BadRequest(new { error = "out of bounds" });
+
+    if (ci < 0 || ci >= PlaceBoard.Palette.Length)
+        return Results.BadRequest(new { error = "invalid colorIndex" });
+
+    // cooldown
+    const int Cooldown = 1;
+    if (!CheckCooldown(ctx, Cooldown, out var remain))
+    {
+        return Results.Json(
+            new { error = "cooldown", seconds = remain },
+            statusCode: 429
+        );
+    }
+
+    // place
+    lock (PlaceBoard.Gate)
+    {
+        PlaceBoard.Pixels[y * PlaceBoard.Width + x] = (byte)ci;
+        PlaceBoard.AddUpdate(x, y, (byte)ci);
+        PlaceBoard.Save();
+    }
+
+    return Results.Ok(new { ok = true, since = PlaceBoard.LastTs });
+});
+
+
+
+PlaceBoard.Load();
+
 app.Run();
+
+static bool CheckCooldown(HttpContext ctx, int cooldownSeconds, out int remainSeconds)
+{
+    var key = "place_last_ts";
+    var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+    var lastStr = ctx.Session.GetString(key);
+    if (long.TryParse(lastStr, out var last))
+    {
+        var remain = (last + cooldownSeconds) - now;
+        if (remain > 0) { remainSeconds = (int)remain; return false; }
+    }
+    ctx.Session.SetString(key, now.ToString());
+    remainSeconds = 0;
+    return true;
+}
+
+
+// ---------- r/place board (globals) ----------
+// ---------- r/place board (globals) ----------
+record PlaceUpdate(int X, int Y, byte ColorIndex, long Ts);
+
+static class PlaceBoard
+{
+    public const int Width = 256;
+    public const int Height = 256;
+
+    // Prefer env; fall back to /data; last resort inside container
+    public static readonly string DataPath =
+        Environment.GetEnvironmentVariable("PLACE_DATA_PATH")
+        ?? "/data/place-board.bin";
+
+    public static readonly string[] Palette = new[]
+    {
+        "#000000","#FFFFFF","#FF4500","#FFA800","#FFD635",
+        "#00A368","#00CC78","#7EED56","#2450A4","#3690EA",
+        "#51E9F4","#811E9F","#B44AC0","#FF99AA","#9C6926",
+        "#6D482F","#BE0039","#FFB470","#515252","#898D90"
+    };
+
+    public static readonly byte[] Pixels = new byte[Width * Height];
+    public static readonly object Gate = new();
+
+    public static readonly Queue<PlaceUpdate> Recent = new();
+    public static long LastTs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+    public static void Load()
+    {
+        try
+        {
+            Console.WriteLine($"[place] Using data path: {DataPath}");
+            var dir = Path.GetDirectoryName(DataPath);
+            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+            {
+                Console.WriteLine($"[place] Creating directory: {dir}");
+                Directory.CreateDirectory(dir);
+            }
+
+            if (File.Exists(DataPath))
+            {
+                var buf = File.ReadAllBytes(DataPath);
+                if (buf.Length == Pixels.Length)
+                {
+                    Array.Copy(buf, Pixels, buf.Length);
+                    Console.WriteLine("[place] Board loaded from data file.");
+                }
+                else
+                {
+                    Console.WriteLine($"[place] Existing file length {buf.Length} != {Pixels.Length}; starting fresh.");
+                }
+            }
+            else
+            {
+                Console.WriteLine("[place] No existing board file; starting fresh.");
+                Save(); // create it
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("[place] Load error: " + ex);
+        }
+    }
+
+    public static void Save()
+    {
+        try
+        {
+            var dir = Path.GetDirectoryName(DataPath);
+            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                Directory.CreateDirectory(dir);
+
+            File.WriteAllBytes(DataPath, Pixels);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("[place] Save error: " + ex.Message);
+        }
+    }
+
+    public static void AddUpdate(int x, int y, byte color)
+    {
+        var ts = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        LastTs = ts;
+        Recent.Enqueue(new PlaceUpdate(x, y, color, ts));
+        while (Recent.Count > 5000) Recent.Dequeue();
+    }
+}
 
 // ---------- DTOs ----------
 record EchoRequest(string Message);

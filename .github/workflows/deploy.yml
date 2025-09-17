@@ -62,6 +62,11 @@ jobs:
             # If your Hub repo is private, uncomment the next two lines:
             # echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
 
+            ORIGIN_DATA="/srv/mindgobblin/data"
+            sudo mkdir -p "$ORIGIN_DATA"
+            sudo chmod -R 0777 "$ORIGIN_DATA"
+
+
             echo "Pulling image ${IMAGE}:${TAG}"
             docker pull "${IMAGE}:${TAG}"
 
@@ -74,6 +79,9 @@ jobs:
               -e SPOTIFY_CLIENT_ID="${{ secrets.SPOTIFY_CLIENT_ID }}" \
               -e SPOTIFY_CLIENT_SECRET="${{ secrets.SPOTIFY_CLIENT_SECRET }}" \
               -e SPOTIFY_REDIRECT_URI="${{ secrets.SPOTIFY_REDIRECT_URI }}" \
+              -e PLACE_DATA_PATH="/data/place-board.bin" \
+              -v /srv/mindgobblin/data:/data \
+              -v /srv/mindgobblin/dp-keys:/app/keys \
               -p 127.0.0.1:${PORT}:${PORT} \
               "${IMAGE}:${TAG}"
 

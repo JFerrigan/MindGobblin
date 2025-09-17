@@ -5,8 +5,8 @@
 
 
 localDockerRun.sh
-
-
+envVars.sh
+data/place-board.bin
 
 # dotenv files
 .env
