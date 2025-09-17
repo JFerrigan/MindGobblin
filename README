@@ -10,5 +10,12 @@ Step 3: Build images and run them. Use these commands:
 docker build -t jake-server .
 docker run --rm -p 8080:8080 jake-server
 
+Step 4: Make a branch, make changes, commit them, & push!
+git checkout -b <branchname>
+...make changes...
+git add .
+git commit
+git push --set-upstream origin <branchname>
+
 Thats all folks! 
 Now go add some features.
