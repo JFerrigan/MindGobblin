@@ -62,11 +62,6 @@ jobs:
             # If your Hub repo is private, uncomment the next two lines:
             # echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
 
-            ORIGIN_DATA="/srv/mindgobblin/data"
-            sudo mkdir -p "$ORIGIN_DATA"
-            sudo chmod -R 0777 "$ORIGIN_DATA"
-
-
             echo "Pulling image ${IMAGE}:${TAG}"
             docker pull "${IMAGE}:${TAG}"
 
