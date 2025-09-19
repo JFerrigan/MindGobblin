@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ModShip — Aggro, Fewer Enemies, 3× Speed</title>
+<style>
+  html,body{margin:0;height:100%;background:#0b0f17;color:#e7ecef;font:14px/1.35 system-ui,Segoe UI,Roboto,Inter,Arial,sans-serif;overflow:hidden}
+  #ui{position:fixed;inset:0;pointer-events:none}
+  .hud{position:absolute;left:12px;top:10px;background:#0f1522aa;border:1px solid #1f2a3c;padding:8px 10px;border-radius:10px;backdrop-filter:blur(4px)}
+  .hud h1{margin:0 0 4px;font-size:14px;color:#76ffd9}
+  .hud .row{display:flex;gap:10px;align-items:center}
+  .badge{display:inline-block;padding:2px 6px;border-radius:999px;border:1px solid #1f2a3c;background:#121a28;color:#98a2ad;font-size:12px}
+  #inventory{position:absolute;left:50%;bottom:10px;transform:translateX(-50%);display:flex;gap:8px;padding:8px;background:#0f1522aa;border:1px solid #1f2a3c;border-radius:12px;pointer-events:auto}
+  .slot{width:46px;height:46px;border-radius:10px;border:1px dashed #1f2a3c;display:flex;align-items:center;justify-content:center;color:#98a2ad;position:relative}
+  .slot.sel{outline:2px solid #76ffd9;outline-offset:2px}
+  .slot .n{position:absolute;right:4px;bottom:3px;font-size:10px;color:#98a2ad}
+  .chip{width:34px;height:34px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;border:1px solid #1f2a3c}
+  #help{position:absolute;right:12px;top:10px;max-width:420px;background:#0f1522f2;border:1px solid #1f2a3c;padding:10px 12px;border-radius:12px;display:none;pointer-events:auto}
+  #help h2{margin:0 0 4px;color:#57e6c1;font-size:15px}
+  #help p, #help ul{margin:6px 0 0;color:#cdd5db}
+  #help ul{padding-left:18px}
+  #toast{position:absolute;left:50%;top:16px;transform:translateX(-50%);background:#121a28;border:1px solid #1f2a3c;padding:6px 10px;border-radius:999px;display:none}
+  .bar{position:absolute;left:12px;bottom:68px;width:220px;height:8px;background:#121a28;border:1px solid #1f2a3c;border-radius:999px;overflow:hidden}
+  .fill{height:100%;background:#57e6c1}
+  canvas{display:block}
+  a{color:#76ffd9}
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="ui">
+  <div class="hud" id="hud">
+    <h1>ModShip</h1>
+    <div class="row">
+      <span class="badge" id="statHP">HP 0/0</span>
+      <span class="badge" id="statParts">Parts 0</span>
+      <span class="badge" id="statTier">Threat T1</span>
+      <span class="badge" id="statLoot">Loot 0</span>
+      <span class="badge" id="statMode">Mode: Combat</span>
+    </div>
+  </div>
+  <div class="bar"><div class="fill" id="xpFill" style="width:0%"></div></div>
+  <div id="inventory"></div>
+  <div id="help">
+    <h2>Controls</h2>
+    <ul>
+      <li><b>WASD</b> move, <b>Mouse</b> aim, <b>Left Click</b> shoot</li>
+      <li><b>E</b> toggle Build Mode (time-slow), <b>R</b> rotate part, <b>X</b> remove hovered attached part</li>
+      <li><b>1-9</b> select inventory slot, or click a slot</li>
+      <li>Fly over <i>part crates</i> to collect loot</li>
+      <li><b>H</b> toggle help, <b>P</b> save, <b>L</b> load, <b>N</b> new run</li>
+    </ul>
+    <p>Aggressive enemies, about half as many on screen, and movement is ~3× faster.</p>
+  </div>
+  <div id="toast"></div>
+</div>
+
+<script>
+(() => {
+  // ======= Tunables =======
+  const SPEED_MULT = 3.0;    // ← bump to 3.5 or 4 for "even faster"
+  const ENEMY_CAP_BASE = 5;  // half the previous 10
+
+  // ======= Utility =======
+  const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+  const rand=(a,b)=>Math.random()*(b-a)+a;
+  const rint=(a,b)=>Math.floor(rand(a,b+1));
+  const choice = arr => (arr && arr.length ? arr[Math.floor(Math.random()*arr.length)] : null);
+  const lerp=(a,b,t)=>a+(b-a)*t;
+  const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+  const angleTo=(a,b)=>Math.atan2(b.y-a.y,b.x-a.x);
+  const now=()=>performance.now()/1000;
+
+  // ======= Canvas / Camera =======
+  const canvas=document.getElementById('game');
+  const ctx=canvas.getContext('2d');
+  let W=innerWidth, H=innerHeight;
+  const onResize=()=>{W=canvas.width=innerWidth; H=canvas.height=innerHeight;}
+  addEventListener('resize', onResize); onResize();
+  const cam={x:0,y:0,zoom:1};
+
+  // ======= UI =======
+  const invEl=document.getElementById('inventory');
+  const statHP=document.getElementById('statHP');
+  const statParts=document.getElementById('statParts');
+  const statTier=document.getElementById('statTier');
+  const statLoot=document.getElementById('statLoot');
+  const statMode=document.getElementById('statMode');
+  const xpFill=document.getElementById('xpFill');
+  const helpEl=document.getElementById('help');
+  const toastEl=document.getElementById('toast');
+  function toast(msg, ms=1400){
+    toastEl.textContent=msg; toastEl.style.display='inline-block';
+    clearTimeout(toast._t);
+    toast._t=setTimeout(()=>toastEl.style.display='none', ms);
+  }
+
+  // ======= Parts, Tiers, Colors =======
+  const GRID_SIZE=18;
+  const GRID=GRID_SIZE;
+  const PartTiers=[
+    {name:"Mk I", color:"#8aa4ff", gun:{dmg:4, rate:3.0, speed:280}, thr:{force:150}},
+    {name:"Mk II", color:"#57e6c1", gun:{dmg:6, rate:3.6, speed:320}, thr:{force:210}},
+    {name:"Mk III", color:"#ffd36e", gun:{dmg:8, rate:4.2, speed:360}, thr:{force:280}},
+    {name:"Mk IV", color:"#ff8db3", gun:{dmg:11, rate:5.0, speed:410}, thr:{force:360}},
+    {name:"Mk V", color:"#76ffd9", gun:{dmg:15, rate:6.0, speed:470}, thr:{force:460}},
+  ];
+  const TypeInfo={
+    core:{size:2, hp:120, symbol:"C"},
+    hull:{size:1, hp:40, symbol:"H"},
+    gun:{size:1, hp:30, symbol:"G"},
+    thruster:{size:1, hp:30, symbol:"T"},
+    shield:{size:1, hp:25, symbol:"S"},
+  };
+
+  function makePart(type,tier=1,rot=0){
+    const ti=TypeInfo[type];
+    const pt=PartTiers[clamp(tier-1,0,PartTiers.length-1)];
+    const baseHP=ti.hp + (tier-1)*8;
+    const p={id:crypto.randomUUID(),type,tier,rot,dx:0,dy:0,hp:baseHP,maxHP:baseHP};
+    if(type==="gun"){Object.assign(p,pt.gun); p._cd=0;}
+    if(type==="thruster"){p.force=pt.thr.force;}
+    return p;
+  }
+
+  // ======= Player & World =======
+  const keys={}; addEventListener('keydown',e=>{keys[e.key.toLowerCase()]=true; if([' '].includes(e.key)) e.preventDefault();});
+  addEventListener('keyup',e=>keys[e.key.toLowerCase()]=false);
+  const mouse={x:0,y:0,worldX:0,worldY:0,down:false}; 
+  addEventListener('mousemove',e=>{mouse.x=e.clientX; mouse.y=e.clientY;});
+  addEventListener('mousedown',()=>mouse.down=true);
+  addEventListener('mouseup',()=>mouse.down=false);
+
+  const player={
+    x:0,y:0,vx:0,vy:0,angle:0, hp:150, maxHP:150, loot:0, level:1, xp:0,
+    parts:[],
+    core: makePart("core",1,0),
+  };
+  player.parts.push(Object.assign(player.core,{dx:0,dy:0}));
+  const inventory=[]; let invSel=0;
+
+  const bullets=[], enemyBullets=[], particles=[], lootCrates=[], enemies=[];
+  let buildMode=false, timeScale=1;
+
+  function recalcPlayerStats(){
+    let hp=TypeInfo.core.hp;
+    for(const p of player.parts){ hp += (p.type!=="core") ? Math.round(0.6*p.maxHP) : 0; }
+    player.maxHP = clamp(hp, 80, 600);
+    player.hp = clamp(player.hp, 0, player.maxHP);
+  }
+
+  // ======= Inventory UI =======
+  function tierColor(t){return PartTiers[t-1]?.color||"#98a2ad";}
+  function typeShort(t){return TypeInfo[t]?.symbol||"?"}
+  const invElRef=document.getElementById('inventory');
+  function renderInventory(){
+    invElRef.innerHTML="";
+    for(let i=0;i<9;i++){
+      const slot=document.createElement('div'); slot.className="slot"+(i===invSel?" sel":"");
+      const lab=document.createElement('div'); lab.className="n"; lab.textContent=(i+1);
+      slot.appendChild(lab);
+      const item=inventory[i];
+      if(item){
+        const chip=document.createElement('div'); chip.className="chip";
+        chip.style.background=tierColor(item.tier);
+        chip.style.color="#0b0f17";
+        chip.textContent=typeShort(item.type);
+        chip.title=`${item.type.toUpperCase()} ${PartTiers[item.tier-1].name}`;
+        slot.appendChild(chip);
+      }
+      slot.onclick=()=>{invSel=i; renderInventory();}
+      invElRef.appendChild(slot);
+    }
+  }
+  renderInventory();
+  addEventListener('keydown',e=>{
+    if(e.key>='1'&&e.key<='9'){invSel=parseInt(e.key)-1; renderInventory();}
+  });
+
+  // ======= Build Helpers =======
+  function worldToScreen(x,y){ return {x:(x-cam.x)*cam.zoom+W/2, y:(y-cam.y)*cam.zoom+H/2}; }
+  function screenToWorld(x,y){ return {x:(x-W/2)/cam.zoom+cam.x, y:(y-H/2)/cam.zoom+cam.y}; }
+  function snap(v){ return Math.round(v/GRID_SIZE)*GRID_SIZE; }
+  function validAttach(dx,dy){
+    const occ=new Set(player.parts.map(p=>`${p.dx},${p.dy}`));
+    if(occ.has(`${dx},${dy}`)) return false;
+    const adj=[[1,0],[-1,0],[0,1],[0,-1]].some(([ax,ay])=>occ.has(`${dx+ax*GRID_SIZE},${dy+ay*GRID_SIZE}`));
+    return adj || (dx===0&&dy===0);
+  }
+  function partUnderCursor(){
+    const {worldX,worldY}=mouse;
+    let best=null, bestD=9999;
+    for(const p of player.parts){
+      const px=player.x+p.dx, py=player.y+p.dy;
+      const d=Math.hypot(worldX-px, worldY-py);
+      if(d<GRID_SIZE*0.8 && d<bestD){best=p; bestD=d;}
+    }
+    return best;
+  }
+
+  // ======= Enemies & Loot =======
+  function spawnEnemy(threat){
+    const radius = rand(600, 1000);
+    const ang = rand(-Math.PI, Math.PI);
+    const ex = player.x + Math.cos(ang)*radius;
+    const ey = player.y + Math.sin(ang)*radius;
+
+    const baseTier = clamp(1 + Math.floor(threat/2), 1, 5);
+    const core = makePart("core", baseTier);
+    const e = {
+      x: ex, y: ey, vx: 0, vy: 0, angle: 0,
+      hp: core.hp, baseHP: core.hp,
+      parts: [Object.assign(core, {dx:0, dy:0})],
+      tier: baseTier,
+      fireCD: rand(0.2, 0.9),   // shoots soon after spawn
+      state: "aggro",           // aggressive by default
+      aggro: 1200,
+      wanderA: rand(0, Math.PI*2),
+      wanderT: rand(2, 5),
+      speedBoost: 1.25
+    };
+
+    // build a ship with a guaranteed gun
+    let rings = clamp(1 + Math.floor(threat/3), 1, 3);
+    const count = clamp(4 + Math.floor(threat*1.8), 4, 16);
+    let hasGun = false;
+    for (let i = 0; i < count; i++) {
+      const forceGun = !hasGun && (i === count-1);
+      const t = forceGun ? "gun"
+                         : (Math.random() < 0.45 ? "hull" : (Math.random() < 0.5 ? "gun" : "thruster"));
+      const tier = clamp(baseTier + rint(0, 1), 1, 5);
+      const p=makePart(t,tier, rint(0,3));
+      const gx=(rint(-rings,rings))*GRID_SIZE, gy=(rint(-rings,rings))*GRID_SIZE;
+      if((gx===0&&gy===0) || e.parts.some(q=>q.dx===gx&&q.dy===gy)){ i--; continue; }
+      p.dx=gx; p.dy=gy; e.parts.push(p); e.hp+=Math.round(0.6*p.maxHP);
+      if(p.type==="gun") hasGun=true;
+    }
+    enemies.push(e);
+  }
+
+  function dropLoot(enemy){
+    const droppable = enemy.parts.filter(p => p && p.type !== "core");
+    if (!droppable.length) {
+      player.loot += 1;
+      toast("No intact parts — converted to scrap (+1)");
+      player.xp += 6 + enemy.tier*4;
+      if (player.xp >= 100) { player.level++; player.xp -= 100; toast("Level up! Threat cap +1"); }
+      return;
+    }
+    const drops = clamp(rint(1, Math.min(3, droppable.length)), 1, 3);
+    for (let i = 0; i < drops; i++) {
+      const src = choice(droppable);
+      if (!src) continue;
+      const part = makePart(src.type, src.tier, src.rot);
+      lootCrates.push({ x: enemy.x + rand(-20, 20), y: enemy.y + rand(-20, 20), part, t: 0 });
+    }
+    player.xp += 8 + enemy.tier * 6;
+    if (player.xp >= 100) { player.level++; player.xp -= 100; toast("Level up! Threat cap +1"); }
+  }
+
+  // ======= Bullets & Particles =======
+  function spawnBullet(x,y,ang,speed, dmg, friendly=true){
+    const b={x,y,vx:Math.cos(ang)*speed, vy:Math.sin(ang)*speed, dmg, life:1.6, friendly};
+    (friendly?bullets:enemyBullets).push(b);
+  }
+  function puff(x,y,c="#98a2ad"){
+    particles.push({x,y,vx:rand(-30,30),vy:rand(-30,30),t:0,life:0.5,color:c});
+  }
+
+  // ======= Saving =======
+  function save(){
+    const data={player:{
+      x:player.x,y:player.y,hp:player.hp, maxHP:player.maxHP, level:player.level, xp:player.xp, loot:player.loot,
+      parts:player.parts.map(p=>({type:p.type,tier:p.tier,rot:p.rot,dx:p.dx,dy:p.dy}))
+    }, inventory:inventory.map(p=>p?{type:p.type,tier:p.tier,rot:p.rot}:null)};
+    localStorage.setItem('modship_save', JSON.stringify(data));
+    toast("Saved (P)");
+  }
+  function load(){
+    const raw=localStorage.getItem('modship_save'); if(!raw){toast("No save found"); return;}
+    try{
+      const s=JSON.parse(raw);
+      Object.assign(player, {x:s.player.x,y:s.player.y,hp:s.player.hp,maxHP:s.player.maxHP,level:s.player.level,xp:s.player.xp,loot:s.player.loot});
+      player.parts = s.player.parts.map(q=>Object.assign(makePart(q.type,q.tier,q.rot),{dx:q.dx,dy:q.dy}));
+      inventory.length=0;
+      for(let i=0;i<9;i++){ inventory[i]=s.inventory[i]?makePart(s.inventory[i].type,s.inventory[i].tier,s.inventory[i].rot):null; }
+      renderInventory(); recalcPlayerStats(); toast("Loaded (L)");
+    }catch(e){console.error(e); toast("Load failed");}
+  }
+  function newRun(){
+    enemies.length=0; bullets.length=0; enemyBullets.length=0; particles.length=0; lootCrates.length=0;
+    player.x=0; player.y=0; player.vx=player.vy=0; player.level=1; player.xp=0; player.loot=0;
+    player.parts=[Object.assign(makePart("core",1,0),{dx:0,dy:0})];
+    const g=makePart("gun",1,0); g.dx=GRID_SIZE; g.dy=0; player.parts.push(g);
+    const t=makePart("thruster",1,0); t.dx=0; t.dy=GRID_SIZE; player.parts.push(t);
+    inventory.length=0; for(let i=0;i<9;i++) inventory[i]=null; renderInventory();
+    recalcPlayerStats(); toast("New run (N) — starter gun mounted");
+  }
+
+  // ======= Input: Mode & Actions =======
+  addEventListener('keydown',e=>{
+    if(e.key.toLowerCase()==='e'){ buildMode=!buildMode; timeScale=buildMode?0.15:1; statMode.textContent=`Mode: ${buildMode?'Build':'Combat'}`; }
+    if(e.key.toLowerCase()==='h'){ helpEl.style.display=helpEl.style.display==='block'?'none':'block'; }
+    if(e.key.toLowerCase()==='p') save();
+    if(e.key.toLowerCase()==='l') load();
+    if(e.key.toLowerCase()==='n') newRun();
+  });
+
+  // ======= Game Loop =======
+  let last=now(); let threat=1, spawnTimer=0;
+  const MAX_ENEMIES_BASE = ENEMY_CAP_BASE; // half the enemies
+  function update(dt){
+    // camera
+    cam.x=lerp(cam.x, player.x, 0.1);
+    cam.y=lerp(cam.y, player.y, 0.1);
+    cam.zoom=lerp(cam.zoom, 1, 0.1);
+
+    // mouse world coords
+    const w = screenToWorld(mouse.x, mouse.y); mouse.worldX=w.x; mouse.worldY=w.y;
+
+    // difficulty slowly climbs
+    threat = clamp(1 + Math.floor((performance.now()/1000)/60) + player.level-1, 1, 12);
+
+    // ===== Movement (3× faster) =====
+    const acc=buildMode?0:1;
+    const ax = (keys['a']?-1:0) + (keys['d']?1:0);
+    const ay = (keys['w']?-1:0) + (keys['s']?1:0);
+    const thrustBase = 220 + player.parts.filter(p=>p.type==='thruster').reduce((s,p)=>s+p.force,0)*0.6;
+    const thrust = thrustBase * SPEED_MULT;
+    player.vx += ax*thrust*dt*acc;
+    player.vy += ay*thrust*dt*acc;
+    player.vx *= 0.88; player.vy *= 0.88; // slightly less drag to feel zippy
+    player.x += player.vx*dt; player.y += player.vy*dt;
+
+    // angle faces mouse
+    player.angle = angleTo(player, {x:mouse.worldX,y:mouse.worldY});
+
+    // ===== Shooting (player) =====
+    if(!buildMode && mouse.down){
+      const guns = player.parts.filter(p=>p.type==='gun');
+      for(const g of guns){
+        g._cd = (g._cd||0) - dt;
+        if(g._cd<=0){
+          const gx=player.x+g.dx, gy=player.y+g.dy;
+          const ang=angleTo({x:gx,y:gy},{x:mouse.worldX,y:mouse.worldY});
+          spawnBullet(gx,gy,ang,g.speed, g.dmg, true);
+          g._cd = 1.0/ g.rate;
+          puff(gx,gy,tierColor(g.tier));
+        }
+      }
+    }
+
+    // ===== Bullets =====
+    for(const arr of [bullets, enemyBullets]){
+      for(let i=arr.length-1;i>=0;i--){
+        const b=arr[i];
+        b.x+=b.vx*dt; b.y+=b.vy*dt; b.life-=dt;
+        if(b.life<=0){arr.splice(i,1); continue;}
+      }
+    }
+
+    // ===== Enemy Spawning (capped lower; cadence unchanged) =====
+    spawnTimer -= dt*timeScale;
+    const maxEnemies = MAX_ENEMIES_BASE + Math.floor((player.level-1)/2);
+    if (spawnTimer <= 0 && enemies.length < maxEnemies) {
+      spawnEnemy(threat);
+      spawnTimer = clamp(3.5 + rand(0,1.5) - threat*0.12, 1.6, 5.0);
+    }
+
+    // ===== Enemies: Always aggressive + 3× chase speed =====
+    for(let i=enemies.length-1;i>=0;i--){
+      const e=enemies[i];
+      e.state="aggro";
+
+      // chase faster
+      const ang=angleTo(e, player);
+      const s=(70+e.tier*28)*(e.speedBoost||1)*SPEED_MULT;
+      e.vx += Math.cos(ang)*s*dt; e.vy += Math.sin(ang)*s*dt;
+
+      // fire if guns available
+      e.fireCD -= dt*timeScale;
+      const theirGuns = e.parts.filter(p=>p.type==='gun');
+      if(e.fireCD<=0 && theirGuns.length){
+        const g=choice(theirGuns);
+        if(g){
+          const gx=e.x+g.dx, gy=e.y+g.dy;
+          const a=angleTo({x:gx,y:gy}, player);
+          spawnBullet(gx,gy,a, g.speed*0.95, Math.max(2,g.dmg-1), false);
+        }
+        e.fireCD = 0.35 + 0.35/Math.max(1,theirGuns.length) + rand(0,0.25);
+      }
+
+      // motion & damping
+      e.vx*=0.90; e.vy*=0.90; e.x+=e.vx*dt; e.y+=e.vy*dt;
+      e.angle = Math.atan2(e.vy,e.vx);
+
+      // bullet hits (player → enemy) with safe targeting
+      for(let bi=bullets.length-1;bi>=0;bi--){
+        const b=bullets[bi];
+        if(Math.hypot(b.x-e.x,b.y-e.y) < GRID_SIZE*2){
+          const tgt = choice(e.parts);
+          if (tgt) {
+            tgt.hp -= b.dmg;
+            if (tgt.hp <= 0 && tgt.type !== "core") {
+              const idx = e.parts.indexOf(tgt);
+              if (idx >= 0) e.parts.splice(idx, 1);
+            }
+          }
+          e.hp -= b.dmg;
+          bullets.splice(bi,1); puff(b.x,b.y,"#ffd36e");
+          if(e.hp<=0){ dropLoot(e); enemies.splice(i,1); puff(e.x,e.y,"#ff8db3"); break; }
+        }
+      }
+
+      // enemy bullet hits player
+      for(let bi=enemyBullets.length-1;bi>=0;bi--){
+        const b=enemyBullets[bi];
+        if(Math.hypot(b.x-player.x,b.y-player.y) < GRID_SIZE*2){
+          enemyBullets.splice(bi,1); puff(b.x,b.y,"#ffd36e");
+          player.hp -= b.dmg;
+          if(player.hp<=0){ toast("You were destroyed. Press N for new run."); timeScale=0.05; }
+        }
+      }
+    }
+
+    // ===== Loot pickup =====
+    for(let i=lootCrates.length-1;i>=0;i--){
+      const L=lootCrates[i];
+      L.t+=dt;
+      if(dist(L,player) < 26){
+        const empty = inventory.findIndex(x=>!x);
+        if(empty===-1){ player.loot++; toast("Storage full: converted to scrap (+1)"); }
+        else { inventory[empty]=L.part; toast(`Picked ${L.part.type.toUpperCase()} ${PartTiers[L.part.tier-1].name}`); renderInventory(); }
+        lootCrates.splice(i,1);
+      }
+    }
+
+    // ===== Build mode placement/removal =====
+    if(buildMode){
+      const sel=inventory[invSel];
+      if(sel){
+        const sdx=snap(mouse.worldX - player.x), sdy=snap(mouse.worldY - player.y);
+        sel._preview={dx:sdx,dy:sdy};
+        if(keys['r']){ sel.rot=(sel.rot+1)%4; keys['r']=false; }
+        if(mouse.down){
+          if(validAttach(sdx,sdy)){
+            const placed=makePart(sel.type, sel.tier, sel.rot);
+            placed.dx=sdx; placed.dy=sdy;
+            player.parts.push(placed);
+            inventory[invSel]=null; renderInventory(); recalcPlayerStats(); puff(player.x+sdx, player.y+sdy, tierColor(placed.tier));
+          } else {
+            toast("Invalid placement");
+          }
+        }
+      }
+      if(keys['x']){
+        const p=partUnderCursor();
+        if(p && p.type!=="core"){
+          const empty = inventory.findIndex(x=>!x);
+          if(empty===-1){ player.loot++; toast("Removed part → scrap (+1)"); }
+          else { const back=makePart(p.type,p.tier,p.rot); inventory[empty]=back; renderInventory(); }
+          const idx=player.parts.indexOf(p); if(idx>=0) player.parts.splice(idx,1);
+          recalcPlayerStats(); puff(player.x+p.dx, player.y+p.dy, "#98a2ad");
+        }
+        keys['x']=false;
+      }
+    }
+
+    // ===== Particles =====
+    for(let i=particles.length-1;i>=0;i--){
+      const p=particles[i]; p.t+=dt; p.x+=p.vx*dt; p.y+=p.vy*dt; if(p.t>p.life) particles.splice(i,1);
+    }
+
+    // ===== Stats/UI =====
+    statHP.textContent=`HP ${Math.round(player.hp)}/${player.maxHP}`;
+    statParts.textContent=`Parts ${player.parts.length-1}`;
+    statTier.textContent=`Threat T${clamp(Math.floor((threat+1)/2),1,6)}`;
+    statLoot.textContent=`Loot ${player.loot}`;
+    statMode.textContent=`Mode: ${buildMode?'Build':'Combat'}`;
+    xpFill.style.width = `${clamp(player.xp,0,100)}%`;
+  }
+
+  function draw(){
+    ctx.clearRect(0,0,W,H);
+
+    // starfield parallax
+    const stars=120;
+    for(let i=0;i<stars;i++){
+      const sx=((i*431)%3000 - ((cam.x*0.3)%3000));
+      const sy=((i*947)%3000 - ((cam.y*0.3)%3000));
+      const p=worldToScreen(sx,sy);
+      ctx.globalAlpha=0.4; ctx.fillStyle="#1f2a3c"; ctx.fillRect(p.x,p.y,2,2);
+    }
+    ctx.globalAlpha=1;
+
+    function drawPart(px,py,part,owner="player"){
+      const scr=worldToScreen(px,py);
+      const size=(TypeInfo[part.type].size)*GRID_SIZE-6;
+      ctx.save();
+      ctx.translate(scr.x,scr.y);
+      ctx.rotate(part.rot*(Math.PI/2));
+      ctx.fillStyle = owner==="player" ? "#121a28" : "#20142a";
+      ctx.strokeStyle = tierColor(part.tier);
+      ctx.lineWidth=2;
+      ctx.beginPath();
+      ctx.roundRect(-size/2,-size/2,size,size,4);
+      ctx.fill(); ctx.stroke();
+      ctx.fillStyle=tierColor(part.tier);
+      ctx.globalAlpha=0.9;
+      const sym = TypeInfo[part.type].symbol;
+      ctx.font="bold 12px system-ui"; ctx.textAlign="center"; ctx.textBaseline="middle";
+      ctx.fillText(sym,0,0);
+      ctx.globalAlpha=1;
+      const r=(size/2)+3;
+      ctx.beginPath(); ctx.arc(0,0,r, -Math.PI*0.5, -Math.PI*0.5 + (Math.max(0,part.hp)/part.maxHP)*Math.PI*2);
+      ctx.strokeStyle="#76ffd9"; ctx.lineWidth=2; ctx.stroke();
+      ctx.restore();
+    }
+
+    // loot crates
+    for(const L of lootCrates){
+      const scr=worldToScreen(L.x,L.y);
+      const t=(Math.sin(L.t*4)+1)*0.5;
+      ctx.save();
+      ctx.translate(scr.x,scr.y);
+      ctx.fillStyle=tierColor(L.part.tier);
+      ctx.globalAlpha=0.85;
+      ctx.beginPath(); ctx.roundRect(-10,-10,20,20,4); ctx.fill();
+      ctx.globalAlpha=1; ctx.fillStyle="#0b0f17"; ctx.font="bold 11px system-ui"; ctx.textAlign="center"; ctx.textBaseline="middle";
+      ctx.fillText(TypeInfo[L.part.type].symbol,0,0);
+      ctx.restore();
+      ctx.beginPath(); ctx.arc(scr.x,scr.y, 16+6*t, 0, Math.PI*2);
+      ctx.strokeStyle=tierColor(L.part.tier); ctx.globalAlpha=0.18; ctx.lineWidth=4; ctx.stroke(); ctx.globalAlpha=1;
+    }
+
+    // enemies
+    for(const e of enemies){
+      for(const p of e.parts) drawPart(e.x+p.dx, e.y+p.dy, p,"enemy");
+      const sc=worldToScreen(e.x,e.y);
+      ctx.beginPath(); ctx.arc(sc.x,sc.y, GRID_SIZE*1.8, 0, Math.PI*2);
+      ctx.strokeStyle="#ff8db3aa"; ctx.lineWidth=1; ctx.stroke();
+    }
+
+    // player
+    for(const p of player.parts) drawPart(player.x+p.dx, player.y+p.dy, p,"player");
+    const ps=worldToScreen(player.x,player.y);
+    ctx.beginPath();
+    ctx.moveTo(ps.x,ps.y);
+    ctx.lineTo(ps.x+Math.cos(player.angle)*18, ps.y+Math.sin(player.angle)*18);
+    ctx.strokeStyle="#57e6c1"; ctx.lineWidth=2; ctx.stroke();
+
+    // bullets
+    function drawBullets(arr, col){
+      ctx.fillStyle=col;
+      for(const b of arr){
+        const s=worldToScreen(b.x,b.y);
+        ctx.beginPath(); ctx.arc(s.x,s.y,2.4,0,Math.PI*2); ctx.fill();
+      }
+    }
+    drawBullets(bullets, "#76ffd9");
+    drawBullets(enemyBullets, "#ffd36e");
+
+    // particles
+    for(const p of particles){
+      const s=worldToScreen(p.x,p.y);
+      const a=1-p.t/p.life;
+      ctx.globalAlpha=clamp(a,0,1);
+      ctx.fillStyle=p.color;
+      ctx.beginPath(); ctx.arc(s.x,s.y, 2+4*a, 0, Math.PI*2); ctx.fill();
+      ctx.globalAlpha=1;
+    }
+
+    // build preview + highlight
+    if(buildMode){
+      const sel=inventory[invSel];
+      if(sel && sel._preview){
+        const pr=sel._preview;
+        const px=player.x+pr.dx, py=player.y+pr.dy;
+        const scr=worldToScreen(px,py);
+        ctx.save();
+        ctx.translate(scr.x,scr.y);
+        ctx.rotate(sel.rot*(Math.PI/2));
+        ctx.globalAlpha= validAttach(pr.dx,pr.dy) ? 0.6 : 0.25;
+        ctx.fillStyle=tierColor(sel.tier);
+        const size=(TypeInfo[sel.type].size)*GRID_SIZE-4;
+        ctx.beginPath(); ctx.roundRect(-size/2,-size/2,size,size,4); ctx.fill();
+        ctx.restore();
+      }
+      const hov=partUnderCursor();
+      if(hov && hov.type!=="core"){
+        const s=worldToScreen(player.x+hov.dx, player.y+hov.dy);
+        ctx.beginPath(); ctx.roundRect(s.x-GRID_SIZE/1.2, s.y-GRID_SIZE/1.2, GRID_SIZE*1.6, GRID_SIZE*1.6, 6);
+        ctx.strokeStyle="#ff8db3"; ctx.setLineDash([4,3]); ctx.lineWidth=2; ctx.stroke(); ctx.setLineDash([]);
+      }
+    }
+
+    // crosshair
+    ctx.beginPath(); ctx.arc(mouse.x,mouse.y,6,0,Math.PI*2); ctx.strokeStyle="#98a2ad"; ctx.lineWidth=1; ctx.stroke();
+  }
+
+  function loop(){
+    const t=now(); let dt=t-last; last=t; dt*=timeScale; dt=clamp(dt,0,0.05);
+    update(dt); draw();
+    requestAnimationFrame(loop);
+  }
+
+  // ======= Bootstrap =======
+  (function bootstrap(){
+    const g=makePart("gun",1,0); g.dx=GRID_SIZE; g.dy=0; player.parts.push(g);
+    const t=makePart("thruster",1,0); t.dx=0; t.dy=GRID_SIZE; player.parts.push(t);
+    inventory[0]=makePart("hull",1,0);
+    inventory[1]=makePart("gun",1,0);
+    inventory[2]=makePart("thruster",1,0);
+    renderInventory(); recalcPlayerStats();
+    helpEl.style.display='block';
+    for(let i=0;i<2;i++) spawnEnemy(1); // fewer at start too
+    toast("3× speed & half enemy cap — left click to shoot");
+    loop();
+  })();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"/>
+<title>Zombieville‑ish — Zoomed, Faster, Melee + Ammo Caches (Single File)</title>
+<style>
+  :root{
+    --bg:#0b0f17;--bg2:#0f1522;--fg:#e7ecef;--muted:#9aa6b2;--edge:#1f2a3c;
+    --brand:#57e6c1;--brand2:#3ac39f;--danger:#ff6b6b;--gold:#ffd166
+  }
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif}
+  #wrap{position:fixed;inset:0;display:grid;grid-template-rows:auto 1fr}
+  header{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:8px 12px;background:linear-gradient(180deg,#111a2a,transparent);border-bottom:1px solid var(--edge);z-index:2}
+  header h1{margin:0;font-size:14px;color:var(--brand)}
+  header .btn{pointer-events:auto;border:1px solid var(--edge);background:#121a28;padding:6px 10px;border-radius:10px;color:var(--fg);cursor:pointer}
+  #hud{position:fixed;left:10px;top:48px;background:#0f1522cc;border:1px solid var(--edge);padding:8px 10px;border-radius:10px;backdrop-filter:blur(6px);z-index:2}
+  #hud .row{display:flex;gap:14px;align-items:center}
+  #hud .bar{width:160px;height:10px;border:1px solid var(--edge);border-radius:999px;overflow:hidden;background:#0b1220}
+  #hud .bar > span{display:block;height:100%}
+  #hud .badge{display:inline-block;padding:2px 8px;border-radius:999px;background:#121a28;border:1px solid var(--edge);font-size:12px}
+  #hud .muted{color:var(--muted);font-size:12px}
+  #canvas{display:block;width:100%;height:100%;touch-action:none}
+  #overlay{position:absolute;inset:0;display:grid;place-items:center;color:#fff;z-index:3;pointer-events:none}
+  #overlay .panel{pointer-events:auto;background:#0f1522e6;border:1px solid var(--edge);padding:18px;border-radius:14px;text-align:center;min-width:260px}
+  #overlay button{margin-top:10px}
+  .pill{display:inline-block;padding:6px 10px;border:1px solid var(--edge);border-radius:999px;background:#121a28;color:var(--fg)}
+  .pill + .pill{margin-left:8px}
+  /* touch controls */
+  .touch{position:fixed;inset:0;pointer-events:none}
+  .touch .pad{position:absolute;bottom:14px;left:14px;display:grid;grid-template-columns:repeat(3,56px);grid-template-rows:repeat(2,56px);gap:10px}
+  .touch .action{position:absolute;bottom:14px;right:14px;display:flex;gap:10px}
+  .touch button{width:56px;height:56px;border-radius:50%;background:#121a28cc;border:1px solid var(--edge);color:#fff;pointer-events:auto}
+  .touch .wide{width:86px;border-radius:999px}
+  .help{position:fixed;right:10px;top:48px;z-index:2;background:#0f1522cc;border:1px solid var(--edge);padding:8px 10px;border-radius:10px}
+  .help kbd{background:#121a28;border:1px solid var(--edge);padding:2px 6px;border-radius:6px}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <header>
+    <h1>Zombieville‑ish</h1>
+    <div>
+      <button class="btn" id="btnPause">Pause (P)</button>
+      <button class="btn" id="btnReset">Reset</button>
+    </div>
+  </header>
+  <div id="hud">
+    <div class="row">
+      <div>
+        <div class="muted">Health</div>
+        <div class="bar"><span id="healthFill" style="background:linear-gradient(90deg,#76ffd9,#3ac39f);width:100%"></span></div>
+      </div>
+      <div>
+        <div class="muted">Ammo</div>
+        <div class="bar" style="width:140px"><span id="ammoFill" style="background:linear-gradient(90deg,#ffd166,#ff9f1c);width:100%"></span></div>
+      </div>
+      <div class="badge">Weapon <span id="weaponName">Pistol</span></div>
+      <div class="badge">Wave <span id="wave">1</span></div>
+      <div class="badge">Score <span id="score">0</span></div>
+      <div class="badge">Best <span id="best">0</span></div>
+    </div>
+  </div>
+  <div class="help">
+    <div style="font-size:12px;color:var(--muted);margin-bottom:6px">Controls</div>
+    <div style="font-size:13px;display:grid;gap:4px">
+      <div><kbd>A</kbd>/<kbd>D</kbd> or <kbd>◀︎</kbd>/<kbd>▶︎</kbd> — move</div>
+      <div><kbd>Space</kbd> or <kbd>W</kbd>/<kbd>▲</kbd> — jump</div>
+      <div><kbd>Mouse</kbd>/<kbd>J</kbd> — shoot • <kbd>R</kbd> — reload</div>
+      <div><kbd>K</kbd> or Right‑Click — <b>melee</b></div>
+      <div><kbd>P</kbd> — pause • <kbd>1/2</kbd> — switch Pistol/SMG</div>
+    </div>
+  </div>
+  <canvas id="canvas"></canvas>
+  <div id="overlay" hidden>
+    <div class="panel">
+      <h2 id="ovTitle" style="margin:0 0 8px">Paused</h2>
+      <div id="ovDesc" style="color:var(--muted);max-width:360px;margin:0 auto 10px">Press <b>any key</b> or click/tap to continue.</div>
+      <div>
+        <span class="pill">Wave <span id="ovWave">1</span></span>
+        <span class="pill">Score <span id="ovScore">0</span></span>
+        <span class="pill">Zombies left <span id="ovLeft">0</span></span>
+      </div>
+      <button class="btn" id="btnContinue">Continue</button>
+      <div style="margin-top:6px;font-size:12px;color:#9aa6b2;">(Auto‑dismiss enabled after 1s safety)</div>
+    </div>
+  </div>
+  <div class="touch" id="touchUI" hidden>
+    <div class="pad">
+      <button data-act="left">◀︎</button>
+      <button data-act="jump">⤒</button>
+      <button data-act="right">▶︎</button>
+      <button class="wide" data-act="reload">R</button>
+      <button class="wide" data-act="melee">K</button>
+    </div>
+    <div class="action">
+      <button style="width:72px;height:72px" data-act="shoot">●</button>
+      <button style="width:72px;height:72px" data-act="pause">P</button>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+'use strict'
+// ===== Utilities =====
+const rand=(a,b)=>Math.random()*(b-a)+a
+const clamp=(v,a,b)=>v<a?a:v>b?b:v
+const lerp=(a,b,t)=>a+(b-a)*t
+
+// ===== Canvas setup with HiDPI scaling + ZOOM =====
+const canvas=document.getElementById('canvas')
+const ctx=canvas.getContext('2d')
+let DPR=window.devicePixelRatio||1
+let ZOOM=2.4 // zoomed in view
+function resize(){
+  DPR=window.devicePixelRatio||1
+  const w=window.innerWidth, h=window.innerHeight
+  canvas.style.width=w+'px'; canvas.style.height=h+'px'
+  canvas.width=Math.floor(w*DPR); canvas.height=Math.floor(h*DPR)
+}
+window.addEventListener('resize',resize,{passive:true}); resize()
+
+// ===== Game constants (fast pace) =====
+const GROUND_H=86
+const GRAV=2600
+const MOVE_SPEED=820
+const JUMP_V=1000
+const FRICTION=0.86
+const AIR_FRIC=0.985
+
+// weapons
+const WEAPONS={
+  pistol:{name:'Pistol', dmg:36, spread:0.02, projSpeed:1050, fireDelay:0.15, mag:12, reload:0.8},
+  smg:{name:'SMG', dmg:16, spread:0.065, projSpeed:1100, fireDelay:0.065, mag:30, reload:0.9},
+}
+
+// ===== Input =====
+const keys=new Set()
+const mouse={down:false,right:false,x:0,y:0}
+window.addEventListener('keydown',e=>{keys.add(e.key.toLowerCase()); if(e.key==='p' || e.key==='P'){togglePause()}})
+window.addEventListener('keyup',e=>keys.delete(e.key.toLowerCase()))
+canvas.addEventListener('mousedown',e=>{ if(!$ov.hidden){ e.preventDefault(); return } mouse.down=e.button===0; mouse.right=e.button===2 })
+canvas.addEventListener('contextmenu',e=>{ if(!$ov.hidden){ e.preventDefault(); return } e.preventDefault(); melee()})
+canvas.addEventListener('mouseup',()=>{mouse.down=false; mouse.right=false})
+canvas.addEventListener('mousemove',e=>{const r=canvas.getBoundingClientRect(); mouse.x=(e.clientX-r.left)*DPR/ZOOM; mouse.y=(e.clientY-r.top)*DPR/ZOOM})
+
+// Touch UI for mobile
+const touchUI=document.getElementById('touchUI')
+function detectTouch(){ const t=('ontouchstart' in window)||navigator.maxTouchPoints>0; touchUI.hidden=!t }
+window.addEventListener('load',detectTouch)
+const heldActs=new Set()
+function bindTouch(btn){
+  const act=btn.dataset.act
+  const on=()=>heldActs.add(act)
+  const off=()=>heldActs.delete(act)
+  btn.addEventListener('touchstart',e=>{e.preventDefault(); if(!$ov.hidden && !canDismissOverlay()) return; on()},{passive:false})
+  btn.addEventListener('touchend',e=>{e.preventDefault(); off()},{passive:false})
+  btn.addEventListener('touchcancel',off)
+  btn.addEventListener('mousedown',e=>{ if(!$ov.hidden && !canDismissOverlay()) return; on() })
+  btn.addEventListener('mouseup',off)
+}
+Array.from(touchUI.querySelectorAll('button')).forEach(bindTouch)
+
+// ===== World state =====
+let state
+function newGame(){
+  state={
+    t:0, dt:0, paused:false, over:false,
+    score:0, best: Number(localStorage.getItem('zv_best')||0),
+    wave:1, left:0, cameraX:0, objects:[], bullets:[], particles:[], pickups:[], crates:[],
+    player:new Player(0, groundY()-40),
+    weapon:'pistol',
+    pityAmmo:false,
+  }
+  state.left=spawnWave(state.wave)
+  spawnAmmoCrates(2)
+  updateHUD()
+}
+
+function groundY(){ return canvas.height/ZOOM - GROUND_H }
+
+class Player{
+  constructor(x,y){
+    this.x=x; this.y=y; this.vx=0; this.vy=0; this.w=26; this.h=42
+    this.face=1; this.onGround=false
+    this.hp=100
+    this.reloadT=0
+    this.ammo=WEAPONS.pistol.mag
+    this.reserve= 120
+    this.invT=0
+    this.fireT=0
+    this.meleeT=0
+  }
+}
+
+class Zombie{
+  constructor(x,y,scale=1){
+    this.x=x; this.y=y; this.vx=rand(-60,60); this.vy=0
+    this.w=22*scale; this.h=46*scale
+    this.hp= Math.floor(44*scale + state.wave*6)
+    this.dead=false; this.hitT=0
+    this.speed= rand(140, 220) * (0.9+0.2*Math.random())
+    this.damage=10
+    this.knock=0
+  }
+}
+
+class Bullet{ constructor(x,y,dx,dy){ this.x=x; this.y=y; this.dx=dx; this.dy=dy; this.r=3; this.life=0 } }
+class Pickup{ constructor(x,y,type){this.x=x;this.y=y;this.type=type; this.w=18; this.h=18; this.vy=-140} }
+class Crate{ constructor(x,y){ this.x=x; this.y=y; this.w=34; this.h=28; this.hp=60; this.dead=false } }
+
+// ===== Spawning (around player, both sides) =====
+function spawnWave(wave){
+  const count= Math.min(14 + wave*6, 110)
+  let spawned=0
+  for(let i=0;i<count;i++){
+    const side = Math.random()<0.5?-1:1
+    const dist = rand(160, 420)
+    const x = state.player.x + side*dist
+    const z=new Zombie(x, groundY()-2, rand(0.9,1.25))
+    state.objects.push(z); spawned++
+  }
+  return spawned
+}
+
+function spawnAmmoCrates(n){
+  for(let i=0;i<n;i++){
+    const side = Math.random()<0.5?-1:1
+    const x = state.player.x + side*rand(280, 620)
+    state.crates.push(new Crate(x, groundY()-14))
+  }
+}
+
+// ===== UI =====
+const $healthFill=document.getElementById('healthFill')
+const $ammoFill=document.getElementById('ammoFill')
+const $wave=document.getElementById('wave')
+const $score=document.getElementById('score')
+const $best=document.getElementById('best')
+const $weaponName=document.getElementById('weaponName')
+const $btnPause=document.getElementById('btnPause')
+const $btnReset=document.getElementById('btnReset')
+const $ov=document.getElementById('overlay')
+const $ovTitle=document.getElementById('ovTitle')
+const $ovDesc=document.getElementById('ovDesc')
+const $ovWave=document.getElementById('ovWave')
+const $ovScore=document.getElementById('ovScore')
+const $ovLeft=document.getElementById('ovLeft')
+const $btnContinue=document.getElementById('btnContinue')
+$btnPause.onclick=()=>togglePause()
+$btnReset.onclick=()=>{newGame()}
+$btnContinue.onclick=()=>dismissOverlay()
+
+function updateHUD(){
+  $healthFill.style.width= clamp(state.player.hp,0,100)+'%'
+  const w=WEAPONS[state.weapon]
+  const frac= state.player.ammo/w.mag
+  $ammoFill.style.width=(100*clamp(frac,0,1))+'%'
+  $wave.textContent= state.wave
+  $score.textContent= state.score
+  $best.textContent= state.best
+  $weaponName.textContent=WEAPONS[state.weapon].name
+}
+
+let overlayUnlockAt=0
+function togglePause(force){
+  if(typeof force==='boolean') state.paused=!force?false:true
+  else state.paused=!state.paused
+  if(state.paused){ showOverlay('Paused','Press <b>any key</b> or click/tap to resume') } else hideOverlay()
+}
+
+function showOverlay(title,desc){
+  $ovTitle.textContent=title
+  $ovDesc.innerHTML=desc
+  $ovWave.textContent=state.wave
+  $ovScore.textContent=state.score
+  $ovLeft.textContent=state.left
+  $ov.hidden=false
+  overlayUnlockAt = performance.now() + 1000 // 1s safety
+}
+function hideOverlay(){ $ov.hidden=true }
+function canDismissOverlay(){ return performance.now() >= overlayUnlockAt }
+function dismissOverlay(){ if($ov.hidden) return; if(!canDismissOverlay()) return; state.paused=false; hideOverlay() }
+
+// Allow any key/mouse/touch to dismiss overlay after 1s
+function globalDismissHandler(e){ if($ov.hidden) return; if(!canDismissOverlay()) return; e.preventDefault(); dismissOverlay() }
+document.addEventListener('keydown',globalDismissHandler)
+document.addEventListener('mousedown',globalDismissHandler)
+document.addEventListener('touchstart',globalDismissHandler,{passive:false})
+
+// ===== Game loop =====
+let lastT=0
+function tick(ts){
+  if(!lastT) lastT=ts
+  const rawDt=(ts-lastT)/1000
+  lastT=ts
+  state.dt= clamp(rawDt, 0, 0.024)
+  if(!state.paused && !state.over) update(state.dt)
+  render()
+  requestAnimationFrame(tick)
+}
+
+function update(dt){
+  state.t+=dt
+  const p=state.player
+
+  // Input
+  const left = keys.has('a')||keys.has('arrowleft') || heldActs.has('left')
+  const right= keys.has('d')||keys.has('arrowright')|| heldActs.has('right')
+  const jump = keys.has('w')||keys.has('arrowup')||keys.has(' ')|| heldActs.has('jump')
+  const reload= keys.has('r')|| heldActs.has('reload')
+  const shootKey = keys.has('j') || mouse.down || heldActs.has('shoot')
+  const meleeKey = keys.has('k') || mouse.right || heldActs.has('melee')
+
+  if(reload) tryReload()
+  if(meleeKey) melee()
+
+  // Movement
+  const ax = (right?1:0) - (left?1:0)
+  p.vx += ax*MOVE_SPEED*dt
+  p.vx = clamp(p.vx, -MOVE_SPEED*1.45, MOVE_SPEED*1.45)
+
+  // Jump
+  if(jump && p.onGround){ p.vy = -JUMP_V; p.onGround=false }
+
+  // Gravity
+  p.vy += GRAV*dt
+
+  // Integrate
+  p.x += p.vx*dt
+  p.y += p.vy*dt
+
+  // Ground
+  const gy=groundY()
+  if(p.y + p.h/2 > gy){ p.y = gy - p.h/2; p.vy=0; p.onGround=true }
+
+  // Friction
+  if(p.onGround) p.vx*=FRICTION; else p.vx*=AIR_FRIC
+
+  // Face
+  if(Math.abs(p.vx)>5) p.face = p.vx>0?1:-1
+
+  // Firing
+  p.fireT -= dt
+  if(shootKey) tryShoot()
+
+  // Timers
+  if(p.reloadT>0){ p.reloadT-=dt; if(p.reloadT<=0){ finishReload() } }
+  if(p.invT>0) p.invT-=dt
+  if(p.meleeT>0) p.meleeT-=dt
+
+  // Camera follows (snappy) — account for ZOOM
+  const viewW = canvas.width/ZOOM
+  state.cameraX = lerp(state.cameraX, p.x - viewW*0.35, 0.18)
+
+  // Update zombies (aggressive)
+  for(const z of state.objects){ if(z.dead) continue
+    const dir = Math.sign(p.x - z.x)
+    z.vx = lerp(z.vx, dir*z.speed, 0.09)
+    if(z.knock!==0){ z.vx += z.knock; z.knock*=0.86; if(Math.abs(z.knock)<2) z.knock=0 }
+    z.vy += GRAV*dt
+    z.x += z.vx*dt
+    z.y += z.vy*dt
+    const gy=groundY(); if(z.y + z.h/2 > gy){ z.y=gy - z.h/2; z.vy=0 }
+    if(z.hitT>0) z.hitT-=dt
+
+    if(rectHit(p,z) && p.invT<=0){ p.hp -= z.damage; p.invT=0.45; if(p.hp<=0){ gameOver() } updateHUD() }
+  }
+
+  // Bullets
+  for(const b of state.bullets){ b.life+=dt; b.x += b.dx*dt; b.y += b.dy*dt }
+  for(const b of state.bullets){
+    if(b.life>1.2){ b.dead=true; continue }
+    if(b.y>groundY()-4){ b.dead=true; continue }
+    for(const z of state.objects){ if(z.dead) continue
+      if(circleRectHit(b, z)){
+        b.dead=true
+        applyDamage(z, WEAPONS[state.weapon].dmg, Math.sign(z.x-state.player.x)*-90)
+        spawnHit(b.x,b.y)
+        break
+      }
+    }
+    for(const c of state.crates){ if(c.dead) continue; if(circleRectHit(b,c)){ b.dead=true; damageCrate(c, 40); break } }
+  }
+  state.bullets=state.bullets.filter(b=>!b.dead)
+
+  // Crates
+  for(const c of state.crates){ if(c.dead) continue }
+  state.crates = state.crates.filter(c=>!c.dead)
+
+  // Pickups
+  for(const it of state.pickups){ it.vy += GRAV*0.8*dt; it.y += it.vy*dt; const gy=groundY(); if(it.y+it.h/2>gy){ it.y=gy-it.h/2; it.vy=0 } if(rectHit(p,it)){ if(it.type==='med') state.player.hp = clamp(state.player.hp+30,0,100); if(it.type==='ammo') state.player.reserve += WEAPONS[state.weapon].mag; it.dead=true; updateHUD() } }
+  state.pickups=state.pickups.filter(i=>!i.dead)
+
+  // Cleanup
+  const minX = state.cameraX - (canvas.width/ZOOM)*0.8
+  state.objects = state.objects.filter(o=>!o.dead && o.x>minX)
+}
+
+function applyDamage(z, amt, knock){
+  z.hp -= amt; z.hitT=0.12; if(knock) z.knock += knock
+  if(z.hp<=0){
+    z.dead=true; state.score += 10
+    const w=WEAPONS[state.weapon]
+    const low = state.player.ammo <= Math.ceil(w.mag*0.5) && state.player.reserve<=w.mag
+    const dropAmmo = low ? true : Math.random()<0.20
+    const type = dropAmmo ? 'ammo' : (Math.random()<0.5?'med':'ammo')
+    if(Math.random()< (dropAmmo?1:0.12)) spawnPickup(z.x, z.y-10, type)
+    state.left=Math.max(0,state.left-1)
+    if(state.left===0){ nextWave() }
+    updateHUD()
+  }
+}
+
+function melee(){
+  const p=state.player; if(p.meleeT>0) return; p.meleeT=0.3
+  const range=52, height=36
+  const box={ x: p.x + p.face* (p.w/2 + range/2), y: p.y, w: range, h: height }
+  p.vx += p.face*120
+  let hitAny=false
+  for(const z of state.objects){ if(z.dead) continue; if(rectHitCentered(box,z)){ applyDamage(z, 55, p.face*220); hitAny=true } }
+  for(const c of state.crates){ if(c.dead) continue; if(rectHitCentered(box,c)){ damageCrate(c, 80); hitAny=true } }
+  if(hitAny) for(let i=0;i<10;i++){ state.particles.push({x:box.x+rand(-6,6), y:box.y+rand(-8,8), vx:rand(-100,100), vy:rand(-160,-60), life:rand(0.12,0.28), r:1.8}) }
+}
+
+function damageCrate(c, dmg){ c.hp-=dmg; if(c.hp<=0){ c.dead=true; for(let i=0;i<3;i++) spawnPickup(c.x+rand(-8,8), c.y-10, 'ammo') } }
+
+function gameOver(){
+  state.over=true; state.paused=true
+  if(state.score>state.best){ state.best=state.score; localStorage.setItem('zv_best', state.best) }
+  updateHUD()
+  showOverlay('Game Over', 'You were eaten by the horde. <br/>Press any key/click to try again, then hit Reset.')
+}
+
+function nextWave(){
+  state.wave++
+  const add=spawnWave(state.wave)
+  state.left=add
+  spawnAmmoCrates(2+Math.floor(state.wave/2))
+  const w=WEAPONS[state.weapon]
+  if(state.player.ammo===0 && state.player.reserve<w.mag){ state.player.reserve += Math.ceil(w.mag*0.75) }
+  showOverlay('Wave cleared!', 'Brace yourself — enemies spawn from <b>both sides</b>. Press any key/click to continue (after 1s).')
+  state.paused=true
+}
+
+function tryShoot(){
+  const p=state.player; if(p.reloadT>0) return
+  const w=WEAPONS[state.weapon]
+  if(p.fireT>0) return
+  if(p.ammo<=0){ tryReload(); return }
+  const originX = p.x + p.face* (p.w*0.7)
+  const originY = p.y - p.h*0.12
+  const ang = Math.atan2( (mouse.y - originY), (mouse.x + state.cameraX - originX) )
+  const spread = (Math.random()-0.5)*w.spread*2
+  const a = ang + spread
+  const b=new Bullet(originX, originY, Math.cos(a)*w.projSpeed, Math.sin(a)*w.projSpeed)
+  state.bullets.push(b)
+  p.fireT = w.fireDelay
+  p.ammo--
+  muzzleFlash(originX, originY, a)
+  updateHUD()
+}
+
+function tryReload(){ const p=state.player; const w=WEAPONS[state.weapon]; if(p.reloadT>0||p.ammo>=w.mag||p.reserve<=0) return; p.reloadT=w.reload }
+function finishReload(){ const p=state.player; const w=WEAPONS[state.weapon]; const need=w.mag - p.ammo; const used=Math.min(need, p.reserve); p.ammo += used; p.reserve -= used; updateHUD() }
+
+// ===== Collisions =====
+function rectHit(a,b){ return Math.abs(a.x-b.x) < (a.w+b.w)/2 && Math.abs(a.y-b.y) < (a.h+b.h)/2 }
+function rectHitCentered(a,b){ return Math.abs(a.x-b.x) < (a.w/2+b.w/2) && Math.abs(a.y-b.y) < (a.h/2+b.h/2) }
+function circleRectHit(c, r){ const dx = Math.abs(c.x - r.x) - r.w/2; const dy = Math.abs(c.y - r.y) - r.h/2; if(dx>c.r||dy>c.r) return false; if(dx<0||dy<0) return true; return dx*dx + dy*dy < c.r*c.r }
+
+// ===== FX =====
+function spawnHit(x,y){ for(let i=0;i<6;i++){ state.particles.push({x,y, vx:rand(-60,60), vy:rand(-140,-40), life:rand(0.2,0.5), r:rand(1,2.2)}) } }
+function muzzleFlash(x,y,a){ for(let i=0;i<4;i++){ state.particles.push({x,y, vx:Math.cos(a)*rand(200,400), vy:Math.sin(a)*rand(-40,40), life:0.08+Math.random()*0.1, r:1.2}) } }
+function spawnPickup(x,y,type){ state.pickups.push( new Pickup(x,y,type) ) }
+
+// ===== Rendering (scaled) =====
+function render(){
+  ctx.clearRect(0,0,canvas.width,canvas.height)
+  const skyGrad=ctx.createLinearGradient(0,0,0,canvas.height)
+  skyGrad.addColorStop(0,'#0c1526'); skyGrad.addColorStop(1,'#08121d'); ctx.fillStyle=skyGrad; ctx.fillRect(0,0,canvas.width,canvas.height)
+  ctx.save(); ctx.scale(ZOOM, ZOOM)
+  const cam=state.cameraX
+  drawHills(cam*0.35, '#0c1929'); drawHills(cam*0.65, '#0a1622')
+  const gy=groundY(); ctx.fillStyle='#0b121e'; ctx.fillRect(0,gy,canvas.width/ZOOM,GROUND_H)
+  ctx.strokeStyle='#132236'; ctx.lineWidth=2/ZOOM; ctx.beginPath(); for(let x=-100;x<canvas.width/ZOOM+100;x+=40){ ctx.moveTo(x,gy+2); ctx.lineTo(x+20,gy+8) } ctx.stroke()
+  ctx.save(); ctx.translate(-cam,0)
+  for(const c of state.crates){ drawCrate(c) }
+  for(const it of state.pickups){ ctx.save(); ctx.translate(it.x, it.y); ctx.fillStyle= it.type==='med'?'#57e6c1':'#ffd166'; ctx.strokeStyle='#1f2a3c'; ctx.lineWidth=2/ZOOM; roundRect(ctx,-it.w/2,-it.h/2,it.w,it.h,4,true,true); ctx.fillStyle='#0f1522'; if(it.type==='med'){ ctx.fillRect(-2, -6, 4, 12); ctx.fillRect(-6, -2, 12, 4) } else { ctx.fillRect(-5,-3,10,6) } ctx.restore() }
+  for(const z of state.objects){ if(z.dead) continue; drawZombie(z) }
+  ctx.fillStyle='#ff9f1c'; for(const b of state.bullets){ ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,Math.PI*2); ctx.fill() }
+  drawPlayer(state.player)
+  for(const p of state.particles){ p.life -= state.dt; p.x += p.vx*state.dt; p.y += p.vy*state.dt }
+  state.particles = state.particles.filter(p=>p.life>0)
+  ctx.fillStyle='#ffdd99'; for(const p of state.particles){ ctx.fillRect(p.x,p.y,2,2) }
+  ctx.restore(); ctx.restore()
+}
+
+function drawCrate(c){ ctx.save(); ctx.translate(c.x, c.y); ctx.fillStyle='#86562a'; ctx.strokeStyle='#3b2a1a'; ctx.lineWidth=2/ZOOM; roundRect(ctx, -c.w/2, -c.h/2, c.w, c.h, 4, true, true); ctx.strokeStyle='#a77b47'; ctx.beginPath(); ctx.moveTo(-c.w/2+4,-c.h/2+4); ctx.lineTo(c.w/2-4,c.h/2-4); ctx.moveTo(c.w/2-4,-c.h/2+4); ctx.lineTo(-c.w/2+4,c.h/2-4); ctx.stroke(); ctx.restore() }
+
+function drawHills(offset, color){ ctx.fillStyle=color; const base=groundY()+10; ctx.beginPath(); ctx.moveTo(-100, base); const step=120; const viewW=canvas.width/ZOOM; for(let x=-100;x<viewW+100;x+=step){ const wx = x + (offset% (step*5)); const h = 10 + 16*Math.sin((x+offset)*0.002) + 10*Math.cos((x+offset)*0.004); ctx.quadraticCurveTo(wx+step*0.5, base-h*2, wx+step, base) } ctx.lineTo(viewW+100, base); ctx.lineTo(viewW+100, canvas.height/ZOOM); ctx.lineTo(-100, canvas.height/ZOOM); ctx.closePath(); ctx.fill() }
+
+function drawPlayer(p){ const t=state.t; ctx.save(); ctx.translate(p.x, p.y); ctx.fillStyle='rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.ellipse(0,p.h/2, 14,6,0,0,Math.PI*2); ctx.fill(); const hurt = p.invT>0 && Math.floor(t*20)%2===0; ctx.fillStyle = hurt? '#ff6b6b' : '#76ffd9'; roundRect(ctx, -p.w/2, -p.h/2, p.w, p.h, 6, true, false); ctx.fillStyle= hurt? '#ff8b8b' : '#a9ffe9'; ctx.fillRect(-8, -p.h/2-10, 16, 12); ctx.fillStyle='#0f1522'; ctx.fillRect(2*p.face-5, -p.h/2-6, 3,3); ctx.fillStyle='#ffd166'; ctx.fillRect(p.face*8, -8, p.face*18, 6); ctx.restore() }
+
+function drawZombie(z){ ctx.save(); ctx.translate(z.x, z.y); ctx.fillStyle='rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.ellipse(0,z.h/2, 12,5,0,0,Math.PI*2); ctx.fill(); const c = z.hitT>0 ? '#ff6b6b' : '#8fe388'; ctx.fillStyle=c; roundRect(ctx, -z.w/2, -z.h/2, z.w, z.h, 6, true, false); ctx.fillStyle = z.hitT>0 ? '#ff9b9b' : '#c7ffc2'; ctx.fillRect(-7, -z.h/2-10, 14, 12); ctx.fillStyle='#0f1522'; ctx.fillRect(-5, -z.h/2-2, 10, 2); ctx.restore() }
+
+function roundRect(ctx, x, y, w, h, r, fill, stroke){ if(w<2*r) r=w/2; if(h<2*r) r=h/2; ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); if(fill) ctx.fill(); if(stroke){ ctx.strokeStyle='#1f2a3c'; ctx.lineWidth=2/ZOOM; ctx.stroke() } }
+
+// Weapon switching
+window.addEventListener('keydown',e=>{ if(e.key==='1'){ setWeapon('pistol') } if(e.key==='2'){ setWeapon('smg') } })
+function setWeapon(id){ if(WEAPONS[id]){ state.weapon=id; updateHUD() } }
+
+// ===== Start =====
+newGame(); requestAnimationFrame(tick)
+$ov.addEventListener('click',()=>{ dismissOverlay() })
+
+})();
+</script>
+</body>
+</html>

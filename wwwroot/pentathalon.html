@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pentathlon — physics timing mini‑games (camera + click counters)</title>
+<style>
+  :root{--bg:#0b0f17;--bg2:#0f1522;--fg:#e7ecef;--muted:#9aa6b2;--brand:#57e6c1;--danger:#ff6b6b;--gold:#ffd166}
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:radial-gradient(1200px 800px at 10% -10%, #132033 0%, transparent 60%),
+                     radial-gradient(1200px 800px at 110% 10%, #0b1a14 0%, transparent 55%),
+                     var(--bg);color:var(--fg);font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif;}
+  #canvas{display:block;width:100vw;height:100vh;touch-action:none}
+  #hud{position:fixed;inset:0;pointer-events:none;display:flex;align-items:flex-start;justify-content:space-between;padding:12px}
+  .pill{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);padding:6px 10px;border-radius:999px;font-weight:600}
+  #left{display:flex;gap:10px;align-items:center}
+  #right{display:flex;gap:10px;align-items:center}
+  #msg{position:fixed;inset:0;display:grid;place-items:center;pointer-events:none}
+  #msg .card{background:rgba(0,0,0,.35);backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:16px 20px;text-align:center;max-width:680px}
+  kbd{background:#111a28;border:1px solid #20324a;border-bottom-width:3px;border-radius:6px;padding:2px 6px;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;font-size:12px}
+  .btn{pointer-events:auto;display:inline-block;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);padding:8px 12px;border-radius:10px;font-weight:700}
+  .btn:active{transform:scale(.98)}
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<div id="hud">
+  <div id="left">
+    <div class="pill">Event: <span id="eventName">—</span></div>
+    <div class="pill">Attempt: <span id="attempt">1</span>/1</div>
+    <div class="pill">Score: <span id="score">0</span></div>
+    <div class="pill">Total: <span id="total">0</span></div>
+  </div>
+  <div id="right" class="pill" style="gap:10px">
+    <span>PENTATHLON</span>
+    <span style="opacity:.7">Click timing + physics</span>
+  </div>
+</div>
+<div id="msg"></div>
+<script>
+'use strict';
+(()=>{
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  const DPR = Math.min(2, devicePixelRatio||1);
+  function resize(){
+    canvas.width = Math.floor(innerWidth*DPR);
+    canvas.height = Math.floor(innerHeight*DPR);
+    canvas.style.width = innerWidth+'px';
+    canvas.style.height = innerHeight+'px';
+    ctx.setTransform(DPR,0,0,DPR,0,0);
+  }
+  addEventListener('resize', resize); resize();
+
+  // HUD helpers
+  const eventEl = document.getElementById('eventName');
+  const attemptEl = document.getElementById('attempt');
+  const scoreEl = document.getElementById('score');
+  const totalEl = document.getElementById('total');
+  const msg = document.getElementById('msg');
+  const showMsg = (html)=> msg.innerHTML = `<div class="card">${html}</div>`;
+  const hideMsg = ()=> msg.innerHTML = '';
+
+  // Math + utils
+  const TAU = Math.PI*2;
+  const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+  const lerp=(a,b,t)=>a+(b-a)*t;
+  const rand=(a,b)=>Math.random()*(b-a)+a;
+
+  // Global game state
+  const state = {
+    idx: 0,
+    total: 0,
+    scores: [0,0,0,0,0],
+    running: false,
+    camX: 0,
+  };
+  const G = 0.5; // gravity
+
+  // --- CAMERA ---
+  function focusCamera(x){
+    const target = Math.max(0, x - innerWidth*0.5);
+    state.camX = lerp(state.camX, target, 0.12);
+  }
+  function withCamera(draw){
+    ctx.save();
+    ctx.translate(-state.camX, 0);
+    draw();
+    ctx.restore();
+  }
+
+  // Base event interface: {name, init(), click(), update(dt), draw(ctx), finished, score, maxClicks, clicksLeft}
+
+  // --- Event 1: RUN-UP LONG JUMP ---
+  function EventLongJump(){
+    const e = {name:'Long Jump (Run & Launch)', maxClicks:2, clicksLeft:2};
+    let phase=0; // 0 power, 1 angle, 2 flight, 3 done
+    let power=0, ang=0;
+    let meter=0, dir=1;
+    let x=120,y=innerHeight-120, vx=0, vy=0;
+    const ground = innerHeight-100;
+    let dist=0;
+
+    e.init=()=>{
+      phase=0; meter=0; dir=1; power=0; ang=0; x=120; y=ground; vx=0; vy=0; dist=0; e.clicksLeft=e.maxClicks;
+      showMsg(`<h2 style="margin:.2em 0">Event 1 — Long Jump</h2>
+        <div style="opacity:.85">Click to lock <b>RUN SPEED</b>, then click to lock <b>JUMP ANGLE</b>. Score = horizontal distance.</div>
+        <div style="margin-top:10px"><span class="btn" id="start1">Start</span></div>`);
+      const startBtn = document.getElementById('start1');
+      if(startBtn) startBtn.onclick=()=>{ hideMsg(); state.running=true; };
+    };
+    e.click=()=>{
+      if(e.clicksLeft<=0) return;
+      if(phase===0){ power = 4 + meter*8; phase=1; meter=0; dir=1; e.clicksLeft--; }
+      else if(phase===1){ ang = lerp(10*Math.PI/180, 55*Math.PI/180, meter); vx=Math.cos(ang)*power*2.2; vy=-Math.sin(ang)*power*2.2; phase=2; e.clicksLeft--; }
+    };
+    e.update=(dt)=>{
+      if(phase===0||phase===1){ meter += dir*0.02*dt; if(meter>1){meter=1;dir=-1;} if(meter<0){meter=0;dir=1;} }
+      if(phase===2){ vy+=G; x+=vx; y+=vy; if(y>=ground){ y=ground; phase=3; dist = Math.max(0, x-120); e.score=Math.round(dist); e.finished=true; } }
+      focusCamera(x);
+    };
+    e.draw=(ctx)=>{
+      withCamera(()=>{
+        // ground
+        ctx.fillStyle='rgba(255,255,255,.08)'; ctx.fillRect(0,ground,Math.max(innerWidth, x+400),4);
+        ctx.fillStyle='rgba(255,255,255,.2)'; ctx.fillRect(110,ground-40,6,40);
+        ctx.strokeStyle='#e7ecef'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(x,y-12,12,0,TAU); ctx.stroke();
+      });
+      // meter overlay (UI stays screen-fixed)
+      if(phase===0||phase===1){ ctx.fillStyle='rgba(255,255,255,.1)'; ctx.fillRect(40,40,200,12); ctx.fillStyle= phase===0? '#57e6c1' : '#ffd166'; ctx.fillRect(40,40, 200*meter,12); ctx.fillStyle='rgba(255,255,255,.7)'; ctx.fillText(phase===0?'RUN SPEED':'JUMP ANGLE', 40, 34); }
+    };
+    e.finished=false; e.score=0; return e;
+  }
+
+  // --- Event 2: JAVELIN (replaces Pole Vault) ---
+  function EventJavelin(){
+    const e={name:'Javelin (Run, Aim, Release)', maxClicks:3, clicksLeft:3};
+    let phase=0; // 0 run power, 1 aim angle, 2 release timing, 3 flight, 4 done
+    let meter=0, dir=1; let run=0; let angle=0; let sway=0; let x=120,y=innerHeight-120,vx=0,vy=0; const ground=innerHeight-100;
+    const wind = rand(-0.03,0.03);
+    e.init=()=>{
+      phase=0; meter=0; dir=1; run=0; angle=0; sway=0; x=120; y=ground; vx=0; vy=0; e.clicksLeft=e.maxClicks;
+      showMsg(`<h2 style="margin:.2em 0">Event 2 — Javelin</h2>
+      <div style="opacity:.85">Click 1: lock <b>RUN SPEED</b>. Click 2: set <b>THROW ANGLE</b>. Click 3: <b>RELEASE</b> while the aim line sways. Wind affects flight. Score = distance.</div>
+      <div style="margin-top:10px"><span class="btn" id="startJav">Start</span></div>`);
+      const startBtn = document.getElementById('startJav');
+      if(startBtn) startBtn.onclick=()=>{ hideMsg(); state.running=true; };
+    };
+    e.click=()=>{
+      if(e.clicksLeft<=0) return;
+      if(phase===0){ run = 3 + meter*8; phase=1; meter=0; dir=1; e.clicksLeft--; }
+      else if(phase===1){ angle = lerp(15, 40, meter) * Math.PI/180; phase=2; meter=0; dir=1; e.clicksLeft--; }
+      else if(phase===2){ // release timing: sway in [-15, +15] degrees, closer to center = better
+        const swayDeg = (Math.sin(sway)*15); const releaseAngle = angle + swayDeg*Math.PI/180;
+        const bonus = 1 - Math.min(1, Math.abs(swayDeg)/15); // 0..1
+        vx = Math.cos(releaseAngle) * (run*2.4 + bonus*1.2);
+        vy = -Math.sin(releaseAngle) * (run*1.7 + bonus*1.0);
+        phase=3; e.clicksLeft--; }
+    };
+    e.update=(dt)=>{
+      if(phase===0||phase===1){ meter += dir*0.02*dt; if(meter>1){meter=1;dir=-1;} if(meter<0){meter=0;dir=1;} }
+      if(phase===2){ sway += 0.12*dt; }
+      if(phase===3){ vy += G; vx += wind; x += vx; y += vy; if(y>=ground){ y=ground; phase=4; e.score=Math.max(0, Math.round(x-120)); e.finished=true; } }
+      focusCamera(x);
+    };
+    e.draw=(ctx)=>{
+      withCamera(()=>{
+        ctx.fillStyle='rgba(255,255,255,.08)'; ctx.fillRect(0,ground,Math.max(innerWidth, x+500),4);
+        // thrower
+        ctx.strokeStyle='#e7ecef'; ctx.beginPath(); ctx.arc(x,y-12,12,0,TAU); ctx.stroke();
+        if(phase<=2){ // aim line
+          const a = phase===1? angle : angle + Math.sin(sway)*15*Math.PI/180;
+          ctx.beginPath(); ctx.moveTo(x,y-12); ctx.lineTo(x+Math.cos(a)*60, y-12-Math.sin(a)*60); ctx.stroke();
+        }
+      });
+      if(phase===0||phase===1){ ctx.fillStyle='rgba(255,255,255,.1)'; ctx.fillRect(40,40,200,12); ctx.fillStyle= phase===0? '#57e6c1' : '#ffd166'; ctx.fillRect(40,40,200*meter,12); ctx.fillStyle='rgba(255,255,255,.8)'; ctx.fillText(phase===0?'RUN SPEED':'THROW ANGLE',40,34); }
+      if(phase===2){ ctx.fillStyle='rgba(255,255,255,.8)'; ctx.fillText('RELEASE',40,34); }
+      ctx.fillStyle='rgba(255,255,255,.6)'; ctx.fillText(`Wind ${(wind>0?'→':'←')} ${(Math.abs(wind)*100).toFixed(0)}%`, innerWidth-180, 40);
+    };
+    e.finished=false; e.score=0; return e;
+  }
+
+  // --- Event 3: HAMMER THROW (SLOWED SPIN) ---
+  function EventHammer(){
+    const e={name:'Hammer Throw (Spin & Release)', maxClicks:6, clicksLeft:6};
+    let omega=0, angle=0; const R=60; let phase=0; // 0 build, 1 released, 2 done
+    let cx=innerWidth*0.35, cy=innerHeight-130; let bx=0, by=0, vx=0, vy=0;
+    const ground=innerHeight-100; const wind = rand(-0.02,0.02);
+    e.init=()=>{
+      omega=0; angle=0; phase=0; bx=cx+R; by=cy; vx=0; vy=0; e.clicksLeft=e.maxClicks;
+      showMsg(`<h2 style="margin:.2em 0">Event 3 — Hammer Throw</h2>
+      <div style="opacity:.85">Up to <b>${e.maxClicks-1}</b> clicks to build <b>spin</b>; your <b>last</b> click releases. Wind nudges the arc. Score = distance.</div>
+      <div style="margin-top:10px"><span class="btn" id="start3">Start</span></div>`);
+      const startBtn = document.getElementById('start3');
+      if(startBtn) startBtn.onclick=()=>{ hideMsg(); state.running=true; };
+    };
+    e.click=()=>{
+      if(e.clicksLeft<=0) return;
+      if(phase===0){
+        if(e.clicksLeft>1){ omega = clamp(omega + 0.10, 0, 1.0); e.clicksLeft--; }
+        else { // final click releases (slower)
+          phase=1; const v = omega*R*1.6; vx = Math.cos(angle)*v+2; vy = Math.sin(angle)*v-2; bx=cx+Math.cos(angle)*R; by=cy+Math.sin(angle)*R; e.clicksLeft--; }
+      } else if(phase===1 && by<ground-2){ vx += wind*10; }
+    };
+    e.update=(dt)=>{
+      if(phase===0){ angle += omega*0.8; omega *= 0.992; }
+      else if(phase===1){ vy += G; vx += wind; bx += vx; by += vy; if(by>=ground){by=ground; phase=2; const d = Math.max(0,bx - cx); e.score=Math.round(d); e.finished=true;} }
+      focusCamera( phase===0 ? cx : bx );
+    };
+    e.draw=(ctx)=>{
+      withCamera(()=>{
+        const right = phase===0? cx+R+300 : Math.max(innerWidth, bx+400);
+        ctx.fillStyle='rgba(255,255,255,.08)'; ctx.fillRect(0,ground,right,4);
+        // circle pad
+        ctx.strokeStyle='rgba(255,255,255,.2)'; ctx.beginPath(); ctx.arc(cx,cy, R+20, 0, TAU); ctx.stroke();
+        // athlete
+        ctx.strokeStyle='#e7ecef'; ctx.beginPath(); ctx.arc(cx,cy,12,0,TAU); ctx.stroke();
+        if(phase===0){ const hx = cx+Math.cos(angle)*R, hy=cy+Math.sin(angle)*R; ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(hx,hy); ctx.stroke(); ctx.beginPath(); ctx.arc(hx,hy,6,0,TAU); ctx.stroke(); }
+        else { ctx.beginPath(); ctx.arc(bx,by,6,0,TAU); ctx.stroke(); }
+      });
+      // omega & wind UI
+      if(phase===0){ ctx.fillStyle='rgba(255,255,255,.1)'; ctx.fillRect(40,40,200,12); ctx.fillStyle='#57e6c1'; ctx.fillRect(40,40,200*clamp(omega/1.0,0,1),12); ctx.fillStyle='rgba(255,255,255,.8)'; ctx.fillText('SPIN',40,34); }
+      ctx.fillStyle='rgba(255,255,255,.6)'; ctx.fillText(`Wind ${(wind>0?'→':'←')} ${(Math.abs(wind)*100).toFixed(0)}%`, innerWidth-180, 40);
+    };
+    e.finished=false; e.score=0; return e;
+  }
+
+  // --- Event 4: RAMP JUMP (replaces High Dive) ---
+  function EventRamp(){
+    const e={name:'Ramp Jump (Run, Pop, Tuck)', maxClicks:3, clicksLeft:3};
+    // Phases: 0 set run, 1 approach + pop timing, 2 flight (optional tuck), 3 done
+    let phase=0; let meter=0, dir=1;
+    let run=0; let popQ=0; let popped=false;
+    const ground=innerHeight-100;
+    const rampX=260, rampLen=420, rampA=20*Math.PI/180;
+    let x=120, y=ground, vx=0, vy=0, approachVel=0;
+    let tucked=false, tuckTimer=0;
+    const airDrag=0.009, tuckDrag=0.006;
+
+    e.init=()=>{
+      phase=0; meter=0; dir=1; run=0; popQ=0; popped=false; x=120; y=ground; vx=0; vy=0; approachVel=0; tucked=false; tuckTimer=0; e.clicksLeft=e.maxClicks;
+      showMsg(`<h2 style="margin:.2em 0">Event 4 — Ramp Jump</h2>
+      <div style="opacity:.85">Click 1: lock <b>RUN SPEED</b>. During the approach, a meter sways — Click 2 near the ramp lip to <b>POP</b> for extra launch. In flight, Click 3 to <b>TUCK</b> briefly (less drag). Score = horizontal distance from the ramp.</div>
+      <div style="margin-top:10px"><span class="btn" id="startRamp">Start</span></div>`);
+      const startBtn = document.getElementById('startRamp');
+      if(startBtn) startBtn.onclick=()=>{ hideMsg(); state.running=true; };
+    };
+
+    e.click=()=>{
+      if(e.clicksLeft<=0) return;
+      if(phase===0){ run = 3 + meter*9; e.clicksLeft--; phase=1; meter=0; dir=1; }
+      else if(phase===1){ // POP timing (store, applied at lip)
+        popQ = clamp(1 - Math.abs(meter-0.5)*2, 0, 1); popped=true; e.clicksLeft--; }
+      else if(phase===2 && !tucked){ // TUCK to reduce drag briefly
+        tucked=true; tuckTimer=120; e.clicksLeft--; }
+    };
+
+    e.update=(dt)=>{
+      if(phase===0||phase===1){ meter += dir*0.012*dt; if(meter>1){meter=1;dir=-1;} if(meter<0){meter=0;dir=1;} }
+      if(phase===1){ // approach run to ramp
+        const target = run*1.4; approachVel += (target - approachVel)*0.035*dt; approachVel = Math.min(approachVel, 10); x += approachVel; y = ground;
+        if(x >= rampX + rampLen){ // takeoff at lip
+          const boost = 0.8 + (popped? popQ*0.8:0);
+          const v = approachVel*0.90*boost;
+          vx = Math.cos(rampA)*v;
+          vy = -Math.sin(rampA)*v - (popped? popQ*0.6:0);
+          phase=2;
+        }
+      } else if(phase===2){ // flight with drag; optional tuck lowers drag
+        const drag = tucked ? tuckDrag : airDrag;
+        const v = Math.hypot(vx,vy);
+        const dfx = -drag * v * vx; const dfy = -drag * v * vy;
+        vy += G + 0.02 + dfy; vx += dfx; x += vx; y += vy;
+        if(tucked && tuckTimer>0){ tuckTimer--; if(tuckTimer<=0) tucked=false; }
+        if(y>=ground){ y=ground; phase=3; e.score = Math.max(0, Math.round(x - (rampX + rampLen))); e.finished=true; }
+      }
+      focusCamera(x);
+    };
+
+    e.draw=(ctx)=>{
+      withCamera(()=>{
+        // ground & ramp
+        ctx.fillStyle='rgba(255,255,255,.08)'; ctx.fillRect(0, ground, Math.max(innerWidth, x+800), 4);
+        ctx.save(); ctx.translate(rampX, ground); ctx.rotate(-rampA); ctx.fillStyle='rgba(255,255,255,.15)'; ctx.fillRect(0,-6, rampLen, 6); ctx.restore();
+        // athlete
+        ctx.strokeStyle='#e7ecef'; ctx.beginPath(); ctx.arc(x, y-12, 12, 0, TAU); ctx.stroke();
+      });
+      // meters
+      if(phase===0){ ctx.fillStyle='rgba(255,255,255,.1)'; ctx.fillRect(40,40,200,12); ctx.fillStyle='#57e6c1'; ctx.fillRect(40,40,200*meter,12); ctx.fillStyle='rgba(255,255,255,.8)'; ctx.fillText('RUN SPEED',40,34); }
+      if(phase===1){ ctx.fillStyle='rgba(255,255,255,.1)'; ctx.fillRect(40,40,200,12); ctx.fillStyle='#ffd166'; ctx.fillRect(40,40,200*meter,12); ctx.fillStyle='rgba(255,255,255,.8)'; ctx.fillText('POP TIMING',40,34); }
+      if(phase===2){ ctx.fillStyle='rgba(255,255,255,.7)'; ctx.fillText('TUCK for speed (click)', 40, 34); }
+    };
+
+    e.finished=false; e.score=0; return e;
+  }
+
+  // --- Event 5: GLIDER RUN ---
+  function EventGlider(){
+    const e={name:'Glider Run (Launch & Glide)', maxClicks:2, clicksLeft:2};
+    let phase=0; // 0 power, 1 pitch, 2 flight, 3 done
+    let meter=0, dir=1; let power=0; let pitch=0; let x=120,y=innerHeight-140,vx=0,vy=0; const ground=innerHeight-100; const drag=0.02; const liftK=0.04; const sink=0.2; const vxCap=11;
+    e.init=()=>{
+      phase=0; meter=0;dir=1;power=0;pitch=0;x=120;y=ground;vx=0;vy=0; e.clicksLeft=e.maxClicks;
+      showMsg(`<h2 style="margin:.2em 0">Event 5 — Glider Run</h2>
+      <div style="opacity:.85">Click to lock <b>LAUNCH SPEED</b>, then <b>PITCH</b>. Score = horizontal distance.</div>
+      <div style="margin-top:10px"><span class="btn" id="start5">Start</span></div>`);
+      const startBtn = document.getElementById('start5');
+      if(startBtn) startBtn.onclick=()=>{ hideMsg(); state.running=true; };
+    };
+    e.click=()=>{
+      if(e.clicksLeft<=0) return;
+      if(phase===0){ power = 3 + meter*8; phase=1; meter=0; dir=1; e.clicksLeft--; }
+      else if(phase===1){ pitch = lerp(-20, 25, meter) * Math.PI/180; vx = power*2.6; vy = -power*0.5; phase=2; e.clicksLeft--; }
+    };
+    e.update=(dt)=>{
+      if(phase===0||phase===1){ meter += dir*0.02*dt; if(meter>1){meter=1;dir=-1;} if(meter<0){meter=0;dir=1;} }
+      if(phase===2){
+        const v = Math.hypot(vx,vy);
+        const lift = liftK * v*v * Math.sin(pitch);
+        const dfx = -drag * v * vx;
+        const dfy = -drag * v * vy;
+        vy += G + sink - lift + dfy;
+        vx += dfx; vx = clamp(vx, -vxCap, vxCap);
+        x += vx; y += vy;
+        if(y>=ground){ y=ground; phase=3; e.score=Math.max(0, Math.round(x-120)); e.finished=true; }
+      }
+      focusCamera(x);
+    };
+    e.draw=(ctx)=>{
+      withCamera(()=>{
+        ctx.fillStyle='rgba(255,255,255,.08)'; ctx.fillRect(0, innerHeight-100, Math.max(innerWidth, x+400), 4);
+        // glider
+        ctx.save(); ctx.translate(x,y-10); ctx.rotate(pitch);
+        ctx.strokeStyle='#e7ecef'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(-16,0); ctx.lineTo(16,0); ctx.moveTo(0,0); ctx.lineTo(0,-12); ctx.stroke(); ctx.restore();
+      });
+      if(phase===0||phase===1){
+        ctx.fillStyle='rgba(255,255,255,.1)'; ctx.fillRect(40,40,200,12);
+        ctx.fillStyle= phase===0? '#57e6c1' : '#ffd166';
+        ctx.fillRect(40,40,200*meter,12);
+        ctx.fillStyle='rgba(255,255,255,.8)'; ctx.fillText(phase===0?'LAUNCH SPEED':'PITCH',40,34);
+      }
+    };
+    e.finished=false; e.score=0; return e;
+  }
+
+  const events = [EventLongJump(), EventJavelin(), EventHammer(), EventRamp(), EventGlider()];
+
+  // Orchestrator
+  let last=performance.now();
+  function loop(t){
+    const dt = Math.min(2, (t-last)/16.6667); last=t; // normalize ~60fps
+    ctx.clearRect(0,0,innerWidth,innerHeight);
+
+    // stars bg (screen space)
+    ctx.save(); ctx.globalAlpha=0.12; for(let i=0;i<80;i++){ const x=(i*137.5 + t*0.01)%innerWidth; const y=(i*91.7 + i*13)%innerHeight; ctx.fillRect(x,y,1,1);} ctx.restore();
+
+    const ev = events[state.idx];
+    eventEl.textContent = ev.name; attemptEl.textContent = '1'; scoreEl.textContent = (ev.finished? ev.score: 0)|0; totalEl.textContent = state.total|0;
+
+    if(state.running){ ev.update(dt); }
+    ev.draw(ctx);
+
+    // clicks UI (screen space)
+    drawClicks(ev);
+
+    if(ev.finished){
+      state.running=false; state.scores[state.idx] = ev.score; state.total += ev.score;
+      // build the message + button programmatically to avoid HTML-escaping issues
+      const card = document.createElement('div'); card.className='card';
+      card.innerHTML = `<h3 style="margin:.2em 0">${ev.name} — Score: ${ev.score}</h3>
+      <div style="opacity:.85">Total so far: <b>${state.total}</b></div>`;
+      msg.innerHTML=''; msg.appendChild(card);
+      const holder = document.createElement('div'); holder.style.marginTop='10px'; card.appendChild(holder);
+      const btn = document.createElement('span'); btn.className='btn'; holder.appendChild(btn);
+      if(state.idx < events.length-1){
+        btn.id='nextEv'; btn.textContent='Next Event ▶';
+        btn.onclick=()=>{ hideMsg(); state.idx++; events[state.idx].init(); };
+      } else {
+        btn.id='finishBtn'; btn.textContent='View Results';
+        btn.onclick=()=>{ hideMsg(); showResults(); };
+      }
+      ev.finished=false;
+    }
+
+    requestAnimationFrame(loop);
+  }
+
+  function drawClicks(ev){
+    const n = ev.maxClicks|0, left = ev.clicksLeft|0;
+    const x0 = innerWidth/2 - (n*18)/2; const y0 = 14; // center top
+    for(let i=0;i<n;i++){
+      ctx.beginPath(); ctx.arc(x0 + i*18 + 8, y0+8, 7, 0, TAU);
+      ctx.fillStyle = i < (n-left) ? 'rgba(255,255,255,.18)' : '#57e6c1';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.stroke();
+    }
+    ctx.fillStyle='rgba(255,255,255,.7)'; ctx.fillText('Clicks', x0-46, y0+12);
+  }
+
+  function showResults(){
+    const s=state.scores; const total=state.total; const best=Number(localStorage.getItem('pentathlon_best')||0);
+    const newBest = Math.max(best,total);
+    localStorage.setItem('pentathlon_best', newBest);
+    showMsg(`<h2 style="margin:.2em 0">Pentathlon Results</h2>
+    <div>1) Long Jump: <b>${s[0]}</b></div>
+    <div>2) Javelin: <b>${s[1]}</b></div>
+    <div>3) Hammer Throw: <b>${s[2]}</b></div>
+    <div>4) Ramp Jump: <b>${s[3]}</b></div>
+    <div>5) Glider Run: <b>${s[4]}</b></div>
+    <div style="margin-top:8px">TOTAL: <b>${total}</b> ${total>=best? ' <span style="color:var(--gold)">★ Personal Best!</span>':''}</div>
+    <div style="margin-top:12px;display:flex;gap:10px;justify-content:center">
+      <span class="btn" id="replay">Replay Pentathlon</span>
+      <span class="btn" id="share">Copy Score</span>
+    </div>`);
+    const replayBtn = document.getElementById('replay');
+    if(replayBtn) replayBtn.onclick=()=>{ hideMsg(); reset(); };
+    const shareBtn = document.getElementById('share');
+    if(shareBtn) shareBtn.onclick=()=>{ navigator.clipboard.writeText(`Pentathlon: ${total} (🌟 PB ${newBest}) — ${location.href}`); const b=document.getElementById('share'); if(b){ b.textContent='Copied!'; setTimeout(()=>b.textContent='Copy Score',1200);} };
+  }
+
+  function reset(){
+    state.idx=0; state.total=0; state.scores=[0,0,0,0,0]; state.camX=0;
+    events.forEach(ev=>{ if(ev.reset) ev.reset(); });
+    events[0].init();
+  }
+
+  canvas.addEventListener('click', ()=>{
+    if(!state.running) return; const ev = events[state.idx]; if(ev.click) ev.click();
+  });
+
+  // Kickoff
+  showMsg(`<h1 style="margin:.2em 0">Pentathlon</h1>
+  <div style="opacity:.85">Five quick, physics‑based, click‑timing events played in order. One attempt each. 
+  Master momentum, gravity, and angles; embrace a little luck.</div>
+  <div style="margin-top:10px">1) Long Jump · 2) Javelin · 3) Hammer Throw · 4) Ramp Jump · 5) Glider Run</div>
+  <div style="margin-top:12px"><span class="btn" id="startGame">Start Pentathlon</span></div>`);
+  const startBtn = document.getElementById('startGame');
+  if(startBtn) startBtn.onclick=()=>{ hideMsg(); reset(); };
+
+  // --- Self-tests (runtime checks) ---
+  (function selfTests(){
+    try{
+      console.groupCollapsed('Pentathlon self-tests');
+      console.assert(Array.isArray(events) && events.length===5, 'events array of length 5');
+      events.forEach((ev,i)=>{
+        console.assert(ev && typeof ev.init==='function', `events[${i}].init exists`);
+        console.assert(typeof ev.update==='function', `events[${i}].update exists`);
+        console.assert(typeof ev.draw==='function', `events[${i}].draw exists`);
+        console.assert(Number.isFinite(ev.maxClicks), `events[${i}].maxClicks is number`);
+      });
+      console.groupEnd();
+    }catch(err){
+      console.error('Self-tests failed', err);
+    }
+  })();
+
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

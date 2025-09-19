@@ -1,0 +1,793 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Age of War — Lite (Queued + x3 Speed)</title>
+<style>
+  :root{
+    --bg:#0b0f17;--bg2:#0f1522;--card:#101826;--edge:#1f2a3c;--fg:#e7ecef;--muted:#9aa6b2;
+    --brand:#57e6c1;--brand2:#3cc7a5;--danger:#ff6b6b;--gold:#ffd166;--good:#75ffa7
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:
+      radial-gradient(1200px 800px at 10% -10%, #132033 0%, transparent 60%),
+      radial-gradient(1200px 800px at 110% 10%, #0b1a14 0%, transparent 55%),
+      var(--bg);color:var(--fg);font:14px/1.35 system-ui,Segoe UI,Roboto,Inter,Arial,sans-serif;overflow:hidden}
+  #wrap{display:grid;grid-template-rows:auto 1fr auto;height:100%}
+  header,footer{padding:8px 12px;background:linear-gradient(180deg,var(--bg2),transparent);border-bottom:1px solid #102033aa}
+  header h1{margin:0;font-size:16px;color:var(--brand)}
+  #hud{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:6px}
+  .pill{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid var(--edge);
+        background:var(--card);border-radius:999px}
+  .btn{cursor:pointer;user-select:none}
+  .btn:active{transform:translateY(1px)}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .sep{width:1px;height:22px;background:#203047}
+  #game{position:relative;overflow:hidden}
+  #canvas{display:block;width:100%;height:100%}
+  #panel{position:absolute;left:10px;bottom:10px;right:10px;display:flex;gap:8px;flex-wrap:wrap}
+  .card{background:rgba(16,24,38,.9);border:1px solid var(--edge);border-radius:12px;padding:8px;backdrop-filter:blur(3px)}
+  .card h3{margin:0 0 6px;font-size:13px;color:var(--brand)}
+  .unitbtn{min-width:110px;display:flex;justify-content:space-between;align-items:center;border-radius:8px;border:1px solid #274059;
+           padding:6px 8px;cursor:pointer;background:#111a2a}
+  .unitbtn[disabled]{opacity:.45;cursor:not-allowed}
+  .unitbtn .name{font-weight:600}
+  .kpi{font-weight:600;color:var(--gold)}
+  .tiny{font-size:12px;color:var(--muted)}
+  .bar{height:8px;background:#0e1522;border:1px solid #24364d;border-radius:999px;overflow:hidden}
+  .bar>i{display:block;height:100%;background:linear-gradient(90deg,var(--brand),var(--brand2))}
+  .danger>i{background:linear-gradient(90deg,#ff8a8a,#ff6b6b)}
+  #tip{position:absolute;top:8px;left:50%;transform:translateX(-50%);padding:6px 10px;border:1px solid #274059;background:#0e1624aa;border-radius:999px}
+  #pauseOverlay{position:absolute;inset:0;display:none;place-items:center;background:rgba(0,0,0,.35)}
+  #pauseOverlay .modal{background:#0f1522;border:1px solid #274059;border-radius:12px;padding:16px;min-width:260px;text-align:center}
+  a.link{color:var(--brand);text-decoration:none;border-bottom:1px dashed #2e9180}
+
+  /* Queue UI */
+  #queueWrap{display:flex;flex-direction:column;gap:6px;min-width:260px}
+  #queueUI{display:flex;gap:6px;flex-wrap:wrap;max-width:360px}
+  .slot{
+    display:inline-flex;align-items:center;gap:6px;padding:6px 8px;border:1px solid #2a415c;background:#0e1624;
+    border-radius:10px;font-size:12px;cursor:pointer
+  }
+  .slot .dot{width:10px;height:10px;border-radius:50%;background:#57e6c1}
+  .slot .nm{font-weight:600}
+  .slot.removing{opacity:.5;transform:scale(.98)}
+  .cap{opacity:.9}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <header>
+    <h1>Age of War — Lite</h1>
+    <div id="hud">
+      <div class="pill">Age: <b id="ageName">Stone</b></div>
+      <div class="pill">Gold: <b id="gold">0</b></div>
+      <div class="pill">Income: <b id="income">+0</b>/s</div>
+      <div class="pill">Base HP:
+        <span class="bar" style="width:140px;margin-left:6px"><i id="hpBar" style="width:100%"></i></span>
+        <b id="hpPct" style="margin-left:6px">100%</b>
+      </div>
+      <div class="pill row">
+        <button id="pauseBtn" class="btn">⏸️ Pause</button>
+        <button id="speedBtn" class="btn">⏩ x3</button>
+        <span class="sep"></span>
+        <button id="upgradeBtn" class="btn">⬆️ Advance Age (200)</button>
+      </div>
+    </div>
+  </header>
+
+  <div id="game">
+    <canvas id="canvas"></canvas>
+    <div id="tip" class="tiny">Tip: queue units (click to remove). Spawns fire every 0.55s. Destroy the enemy base!</div>
+
+    <div id="panel">
+      <div class="card">
+        <h3>Spawn Units</h3>
+        <div class="row" id="unitRow"></div>
+        <div class="tiny" style="margin-top:6px">Queue up to <b id="capN">6</b> units.</div>
+      </div>
+
+      <div id="queueWrap" class="card">
+        <h3>Queue</h3>
+        <div id="queueUI"></div>
+        <div class="tiny cap"><span id="qCount">0</span>/<span id="qCap">6</span> slots used • Click an item to remove it</div>
+      </div>
+
+      <div class="card">
+        <h3>Tower</h3>
+        <div class="row">
+          <button id="repairBtn" class="unitbtn"><span class="name">Repair 10%</span><span class="kpi">60</span></button>
+          <button id="dmgBtn" class="unitbtn"><span class="name">Tower Dmg +1</span><span class="kpi">80</span></button>
+          <button id="rofBtn" class="unitbtn"><span class="name">Tower ROF +10%</span><span class="kpi">80</span></button>
+        </div>
+      </div>
+    </div>
+
+    <div id="pauseOverlay">
+      <div class="modal">
+        <h2 style="margin:0 0 10px;color:var(--brand)">Paused</h2>
+        <p class="tiny">Take a breath. Strategize. Unpause when ready.</p>
+        <div class="row" style="justify-content:center;margin-top:8px">
+          <button id="resumeBtn" class="btn pill">▶️ Resume</button>
+          <button id="restartBtn" class="btn pill">🔁 Restart</button>
+        </div>
+        <p class="tiny" style="margin-top:10px">Single-file edition</p>
+      </div>
+    </div>
+  </div>
+
+  <footer class="tiny">
+    &nbsp;Controls: Click unit buttons to queue; click a queued pill to remove. ␣ to pause, 1/2/3 to quick-queue.
+  </footer>
+</div>
+
+<script>
+(() => {
+  // ----------------------------
+  // Config & Data
+  // ----------------------------
+  const Ages = [
+    { name:"Stone", theme:"#6fb26b", income:8, upgradeCost:200,
+      units:[
+        {key:"club", label:"Clubber", cost:40, type:"melee", hp:70, dmg:9, spd:28, rng:16, atkCd:0.9},
+        {key:"slinger", label:"Slinger", cost:55, type:"ranged", hp:55, dmg:7, spd:27, rng:140, atkCd:1.1, projSpd:240},
+        {key:"brute", label:"Brute", cost:90, type:"melee", hp:150, dmg:11, spd:22, rng:16, atkCd:1.2},
+      ]
+    },
+    { name:"Medieval", theme:"#6fa6d6", income:11, upgradeCost:350,
+      units:[
+        {key:"sword", label:"Swordsman", cost:65, type:"melee", hp:110, dmg:12, spd:30, rng:16, atkCd:0.8},
+        {key:"archer", label:"Archer", cost:85, type:"ranged", hp:75, dmg:10, spd:29, rng:180, atkCd:1.0, projSpd:280},
+        {key:"knight", label:"Knight", cost:120, type:"melee", hp:220, dmg:15, spd:26, rng:16, atkCd:1.0},
+      ]
+    },
+    { name:"Modern", theme:"#d6b76f", income:15, upgradeCost:9999,
+      units:[
+        {key:"inf", label:"Infantry", cost:90, type:"ranged", hp:120, dmg:15, spd:33, rng:200, atkCd:0.8, projSpd:340},
+        {key:"smg", label:"SMG", cost:120, type:"ranged", hp:110, dmg:9, spd:34, rng:160, atkCd:0.18, projSpd:360},
+        {key:"tank", label:"Tank", cost:200, type:"melee", hp:420, dmg:35, spd:22, rng:20, atkCd:0.8},
+      ]
+    }
+  ];
+
+  const Game = {
+    width: 1280, height: 560,
+    laneY: 360,
+    groundH: 120,
+    baseHPmax: 1200,
+    startGold: 150,
+    maxQueue: 6,
+    spawnCooldown: 0.55, // seconds between spawns per side
+    ai: {
+      baseCadence: 2.8,
+      greed: 0.06,
+      catchupHP: 0.65,
+    }
+  };
+
+  // ----------------------------
+  // State
+  // ----------------------------
+  let state;
+  function freshState(){
+    return {
+      t: 0, dt: 0, timeScale: 3, // 3× speed by default
+      paused: false,
+      you: faction(true),
+      ai: faction(false),
+      projectiles: [],
+      particles: [],
+      lastIncomeTick: 0,
+      tooltipTimer: 6,
+      lastAiTick: 0,
+    };
+  }
+  function faction(isPlayer){
+    return {
+      isPlayer,
+      gold: Game.startGold,
+      age: 0,
+      baseHP: Game.baseHPmax,
+      baseTurret: {dmg: 10, rof: 1.0, cd:0, range: 260, projSpd: 360},
+      units: [],
+      queue: [],
+      spawnCd: 0,
+    };
+  }
+
+  // ----------------------------
+  // Canvas & UI hooks
+  // ----------------------------
+  const cvs = document.getElementById('canvas');
+  const ctx = cvs.getContext('2d');
+  const elAge = document.getElementById('ageName');
+  const elGold = document.getElementById('gold');
+  const elIncome = document.getElementById('income');
+  const elHp = document.getElementById('hpBar');
+  const elHpPct = document.getElementById('hpPct');
+  const elUpgrade = document.getElementById('upgradeBtn');
+  const elPause = document.getElementById('pauseBtn');
+  const elSpeed = document.getElementById('speedBtn');
+  const elPanel = document.getElementById('unitRow');
+  const elPauseOverlay = document.getElementById('pauseOverlay');
+  const elResume = document.getElementById('resumeBtn');
+  const elRestart = document.getElementById('restartBtn');
+  const elRepair = document.getElementById('repairBtn');
+  const elDmg = document.getElementById('dmgBtn');
+  const elROF = document.getElementById('rofBtn');
+  const elQueue = document.getElementById('queueUI');
+  const elQCount = document.getElementById('qCount');
+  const elQCap = document.getElementById('qCap');
+  const elCapN = document.getElementById('capN');
+
+  function resize(){
+    const rect = document.getElementById('game').getBoundingClientRect();
+    cvs.width = rect.width;
+    cvs.height = rect.height;
+  }
+  addEventListener('resize', resize);
+
+  // ----------------------------
+  // Helpers
+  // ----------------------------
+  const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+  const rand=(a,b)=>a+Math.random()*(b-a);
+
+  function canAfford(f, cost){ return f.gold >= cost; }
+  function spend(f, cost){ f.gold -= cost; }
+  function incomePerSec(f){ return Ages[f.age].income; }
+  function ageData(f){ return Ages[f.age]; }
+  function enemyOf(f){ return f===state.you ? state.ai : state.you; }
+
+  function spawnUnit(f, unitSpec){
+    const dir = f.isPlayer ? 1 : -1;
+    const x = f.isPlayer ? 90 : (cvs.width - 90);
+    const u = {
+      side: f,
+      enemy: enemyOf(f),
+      spec: unitSpec,
+      x, y: Game.laneY, dir,
+      w: 20, h: 24,
+      hp: unitSpec.hp, hpMax: unitSpec.hp,
+      cd: 0,
+      vx: unitSpec.spd * dir,
+      dead:false,
+      bleed:0
+    };
+    f.units.push(u);
+    return true;
+  }
+
+  function addProjectile(x,y,vx,vy,dmg,owner){
+    state.projectiles.push({x,y,vx,vy,dmg,owner,life:3});
+  }
+
+  function hitUnit(u, dmg){
+    u.hp -= dmg;
+    u.bleed = .25;
+    if (u.hp <= 0){ u.dead = true; burst(u.x,u.y,8); }
+  }
+
+  function burst(x,y,n){
+    for (let i=0;i<n;i++){
+      state.particles.push({x,y, vx:rand(-50,50), vy:rand(-120,-30), life:rand(.5,1.1), c:"#ffb3a3"});
+    }
+  }
+
+  function fireTurret(f){
+    const t = f.baseTurret;
+    if (t.cd > 0) return;
+    const target = nearestEnemyToBase(f);
+    if (!target) return;
+    const bx = f.isPlayer ? 70 : (cvs.width-70);
+    const by = Game.laneY - 46;
+    const dx = target.x - bx, dy = (target.y-10) - by;
+    const dist = Math.hypot(dx,dy);
+    if (dist > t.range) return;
+    const spd = t.projSpd;
+    const vx = (dx/dist)*spd, vy=(dy/dist)*spd;
+    addProjectile(bx,by,vx,vy,t.dmg,f);
+    t.cd = 1 / t.rof;
+  }
+
+  function nearestEnemyToBase(f){
+    let best=null, bestd=1e9;
+    const bx = f.isPlayer ? 70 : (cvs.width-70);
+    for (const u of enemyOf(f).units){
+      const d = Math.abs(u.x - bx);
+      if (d < bestd){ best = u; bestd = d; }
+    }
+    return best;
+  }
+
+  // ----------------------------
+  // AI
+  // ----------------------------
+  function aiStep(dt){
+    const f = state.ai, e = state.you;
+    state.lastAiTick += dt;
+    if (state.lastAiTick < Game.ai.baseCadence) return;
+    state.lastAiTick = 0;
+
+    // Upgrade logic
+    const wantUpgrade = Math.random() < Game.ai.greed || (f.baseHP < e.baseHP*Game.ai.catchupHP);
+    const age = Ages[f.age];
+    if (wantUpgrade && f.age < Ages.length-1 && f.gold >= age.upgradeCost){
+      f.gold -= age.upgradeCost;
+      f.age++;
+      return;
+    }
+
+    // Spawn logic
+    const ulist = Ages[f.age].units;
+    const pick = Math.floor(Math.random()*ulist.length);
+    const spec = ulist[pick];
+    if (f.gold >= spec.cost && f.queue.length < Game.maxQueue){
+      f.gold -= spec.cost;
+      f.queue.push(spec);
+    }
+  }
+
+  // ----------------------------
+  // Game Loop & Mechanics
+  // ----------------------------
+  function update(dt){
+    if (state.paused) return;
+
+    state.t += dt;
+
+    // income ticks
+    state.lastIncomeTick += dt;
+    if (state.lastIncomeTick >= 1){
+      state.lastIncomeTick = 0;
+      state.you.gold += incomePerSec(state.you);
+      state.ai .gold += incomePerSec(state.ai);
+    }
+
+    // tooltip fade
+    state.tooltipTimer -= dt;
+
+    // turret cooldowns
+    state.you.baseTurret.cd = Math.max(0, state.you.baseTurret.cd - dt);
+    state.ai .baseTurret.cd = Math.max(0, state.ai .baseTurret.cd - dt);
+
+    // turrets fire
+    fireTurret(state.you);
+    fireTurret(state.ai);
+
+    // unit logic
+    for (const side of [state.you, state.ai]){
+      for (const u of side.units){
+        if (u.dead) continue;
+        u.bleed = Math.max(0, u.bleed - dt);
+
+        // find target in range
+        let target = null;
+        for (const v of u.enemy.units){
+          if (v.dead) continue;
+          if (Math.abs(v.x - u.x) <= u.spec.rng + 8){
+            target = v; break;
+          }
+        }
+        // base proximity
+        const baseX = u.enemy.isPlayer ? 70 : (cvs.width - 70);
+        const canHitBase = Math.abs(u.x - baseX) <= u.spec.rng + 20;
+
+        // move
+        const blocked = target && Math.abs(target.x - u.x) < u.spec.rng * 0.9;
+        if (!blocked && !canHitBase){
+          u.x += (u.vx * dt);
+          u.x = clamp(u.x, 40, cvs.width-40);
+        }
+
+        // attack
+        u.cd = Math.max(0, u.cd - dt);
+        if (u.cd <= 0){
+          if (target){
+            if (u.spec.type==='ranged'){
+              const pvx = u.spec.projSpd * u.dir;
+              addProjectile(u.x, u.y-10, pvx, 0, u.spec.dmg, side);
+            } else {
+              hitUnit(target, u.spec.dmg);
+            }
+            u.cd = u.spec.atkCd;
+          } else if (canHitBase){
+            u.enemy.baseHP = Math.max(0, u.enemy.baseHP - u.spec.dmg);
+            burst(baseX, Game.laneY-40, 3);
+            u.cd = u.spec.atkCd;
+          }
+        }
+      }
+      side.units = side.units.filter(u=>!u.dead);
+    }
+
+    // projectiles
+    for (const p of state.projectiles){
+      p.life -= dt;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+
+      const foe = enemyOf(p.owner);
+      for (const u of foe.units){
+        if (u.dead) continue;
+        if (Math.abs(u.x - p.x) < 12 && Math.abs(u.y-10 - p.y) < 16){
+          hitUnit(u, p.dmg);
+          p.life = -1;
+          break;
+        }
+      }
+      const bx = foe.isPlayer ? 70 : (cvs.width-70);
+      const by = Game.laneY - 46;
+      if (Math.hypot(p.x-bx, p.y-by) < 18){
+        foe.baseHP = Math.max(0, foe.baseHP - p.dmg);
+        p.life = -1;
+      }
+    }
+    state.projectiles = state.projectiles.filter(p=>p.life>0);
+
+    // particles
+    for (const q of state.particles){
+      q.life -= dt;
+      q.x += q.vx*dt; q.y += q.vy*dt; q.vy += 240*dt;
+    }
+    state.particles = state.particles.filter(q=>q.life>0);
+
+    // spawn cooldowns & queues
+    state.you.spawnCd = Math.max(0, state.you.spawnCd - dt);
+    state.ai .spawnCd = Math.max(0, state.ai .spawnCd - dt);
+
+    for (const f of [state.you, state.ai]){
+      if (f.queue.length && f.spawnCd<=0){
+        const spec = f.queue.shift();
+        spawnUnit(f, spec);
+        f.spawnCd = Game.spawnCooldown;
+        if (f.isPlayer) renderQueue();
+      }
+    }
+
+    // AI decision making
+    aiStep(dt);
+
+    // End condition
+    if (state.you.baseHP<=0 || state.ai.baseHP<=0){
+      state.paused = true;
+      showOverlay(true);
+      const msg = state.you.baseHP<=0 ? "Defeat..." : "Victory!";
+      const modal = elPauseOverlay.querySelector('.modal');
+      modal.querySelector('h2').textContent = msg;
+      modal.querySelector('p.tiny').textContent = "Press Restart to try again.";
+    }
+  }
+
+  // ----------------------------
+  // Rendering
+  // ----------------------------
+  function draw(){
+    ctx.clearRect(0,0,cvs.width,cvs.height);
+
+    const g = ctx.createLinearGradient(0,0,0,cvs.height);
+    g.addColorStop(0,'#0a1220'); g.addColorStop(1,'#0a141a');
+    ctx.fillStyle = g; ctx.fillRect(0,0,cvs.width,cvs.height);
+
+    drawHills('#0f1c2e', 0.3, 120);
+    drawHills('#0f222a', 0.6, 200);
+
+    ctx.fillStyle = '#0e1624';
+    ctx.fillRect(0, Game.laneY+12, cvs.width, Game.groundH);
+
+    ctx.strokeStyle = '#1c2a3f';
+    ctx.beginPath();
+    ctx.moveTo(0, Game.laneY+12); ctx.lineTo(cvs.width, Game.laneY+12);
+    ctx.stroke();
+
+    drawBase(true);
+    drawBase(false);
+
+    for (const side of [state.you, state.ai]){
+      for (const u of side.units){
+        drawUnit(u);
+      }
+    }
+
+    for (const p of state.projectiles){
+      ctx.fillStyle = '#ffd7a1';
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 3, 0, Math.PI*2);
+      ctx.fill();
+    }
+
+    for (const q of state.particles){
+      ctx.globalAlpha = Math.max(0, q.life);
+      ctx.fillStyle = q.c;
+      ctx.fillRect(q.x, q.y, 2, 2);
+      ctx.globalAlpha = 1;
+    }
+
+    const tip = document.getElementById('tip');
+    tip.style.opacity = String(Math.max(0, Math.min(1, state.tooltipTimer)));
+  }
+
+  function drawHills(color, speed, h){
+    ctx.fillStyle = color;
+    const t = state.t * speed;
+    ctx.beginPath();
+    ctx.moveTo(0, Game.laneY+12);
+    for (let x=0; x<=cvs.width; x+=20){
+      const y = Game.laneY+12 - (Math.sin((x+t*60)*0.003)*h*0.08 + Math.sin((x+t*35)*0.004)*h*0.06 + h*0.2);
+      ctx.lineTo(x,y);
+    }
+    ctx.lineTo(cvs.width, cvs.height);
+    ctx.lineTo(0, cvs.height);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function drawBase(isPlayer){
+    const x = isPlayer ? 30 : (cvs.width-30);
+    const dir = isPlayer ? 1 : -1;
+    ctx.save();
+    ctx.translate(x, Game.laneY-20);
+    ctx.fillStyle = isPlayer ? '#1a2a44' : '#442a1a';
+    ctx.strokeStyle = '#28456e';
+    ctx.lineWidth = 2;
+    roundRect(-20, -60, 40, 90, 8);
+    ctx.fill(); ctx.stroke();
+
+    ctx.fillStyle = isPlayer ? '#89e0ff' : '#ffbf7a';
+    ctx.fillRect(-8, -48, 16, 8);
+    ctx.fillRect(-3, -52, 6, 6);
+
+    const f = isPlayer ? state.you : state.ai;
+    if (f.baseTurret.cd > 0.8/f.baseTurret.rof){
+      ctx.fillStyle = '#ffd166';
+      ctx.beginPath();
+      ctx.arc(dir>0?16:-16, -44, 4, 0, Math.PI*2);
+      ctx.fill();
+    }
+    ctx.restore();
+
+    const hp = isPlayer ? state.you.baseHP : state.ai.baseHP;
+    const pct = hp / Game.baseHPmax;
+    ctx.fillStyle = '#0e1522';
+    ctx.fillRect(x-30, Game.laneY-80, 60, 6);
+    ctx.fillStyle = isPlayer ? '#76ffd9' : '#ff8a8a';
+    ctx.fillRect(x-30, Game.laneY-80, 60*pct, 6);
+  }
+
+  function roundRect(x,y,w,h,r){
+    ctx.beginPath();
+    ctx.moveTo(x+r,y);
+    ctx.arcTo(x+w,y,x+w,y+h,r);
+    ctx.arcTo(x+w,y+h,x,y+h,r);
+    ctx.arcTo(x,y+h,x,y,r);
+    ctx.arcTo(x,y,x+w,y,r);
+    ctx.closePath();
+  }
+
+  function drawUnit(u){
+    const cBody = u.side.isPlayer ? '#57e6c1' : '#ff9b70';
+    const cEdge = u.side.isPlayer ? '#2e7c68' : '#824b34';
+    const cBleed = '#ff5c5c';
+
+    ctx.save();
+    ctx.translate(u.x, u.y-12);
+
+    ctx.globalAlpha = .25;
+    ctx.fillStyle = '#000';
+    ctx.beginPath(); ctx.ellipse(0, 18, 14, 5, 0, 0, Math.PI*2); ctx.fill();
+    ctx.globalAlpha = 1;
+
+    ctx.fillStyle = cBody;
+    ctx.strokeStyle = cEdge;
+    ctx.lineWidth = 2;
+    roundRect(-u.w/2, -u.h/2, u.w, u.h, 6);
+    ctx.fill(); ctx.stroke();
+
+    ctx.fillStyle = '#dfe9ff';
+    if (u.spec.type==='ranged'){
+      ctx.fillRect(u.dir>0?4:-12, -2, 8, 4);
+    } else {
+      ctx.fillRect(u.dir>0?8:-8, -6, 4, 12);
+    }
+
+    if (u.bleed>0){
+      ctx.globalAlpha = u.bleed;
+      ctx.fillStyle = cBleed;
+      ctx.fillRect(-u.w/2, -u.h/2, u.w, u.h);
+      ctx.globalAlpha = 1;
+    }
+
+    const pct = u.hp / u.hpMax;
+    ctx.fillStyle = '#0e1522';
+    ctx.fillRect(-12, -18, 24, 4);
+    ctx.fillStyle = '#75ffa7';
+    ctx.fillRect(-12, -18, 24*pct, 4);
+
+    ctx.restore();
+  }
+
+  // ----------------------------
+  // UI Wiring
+  // ----------------------------
+  function buildUnitButtons(){
+    elPanel.innerHTML = '';
+    const units = Ages[state.you.age].units;
+    units.forEach((spec, idx)=>{
+      const btn = document.createElement('button');
+      btn.className = 'unitbtn';
+      btn.innerHTML = `<span class="name">${spec.label}</span><span class="kpi">${spec.cost}</span>`;
+      btn.addEventListener('click', ()=>queueUnit(spec));
+      elPanel.appendChild(btn);
+    });
+  }
+
+  function queueUnit(spec){
+    if (state.you.queue.length >= Game.maxQueue) return;
+    if (!canAfford(state.you, spec.cost)) return;
+    spend(state.you, spec.cost);
+    state.you.queue.push(spec);
+    flashGold();
+    renderQueue();
+  }
+
+  function renderQueue(){
+    elQueue.innerHTML = '';
+    const q = state.you.queue;
+    q.forEach((spec, i)=>{
+      const pill = document.createElement('div');
+      pill.className = 'slot';
+      const dot = document.createElement('span'); dot.className='dot';
+      pill.appendChild(dot);
+      const nm = document.createElement('span'); nm.className='nm';
+      nm.textContent = shortName(spec.label);
+      pill.appendChild(nm);
+      const cp = document.createElement('span'); cp.textContent = spec.cost; cp.className='kpi';
+      pill.appendChild(cp);
+      pill.title = `Remove ${spec.label}`;
+      pill.addEventListener('click', ()=>{
+        pill.classList.add('removing');
+        setTimeout(()=>{
+          state.you.queue.splice(i,1);
+          state.you.gold += spec.cost * 0.75; // 75% refund on cancel
+          renderQueue(); refreshHUD();
+        }, 80);
+      });
+      elQueue.appendChild(pill);
+    });
+    elQCount.textContent = q.length;
+    elQCap.textContent = Game.maxQueue;
+    elCapN.textContent = Game.maxQueue;
+  }
+
+  function shortName(s){
+    // "Swordsman" -> "Swd"; "SMG" stays "SMG"
+    if (s.length<=4) return s;
+    const parts = s.split(/\s+/);
+    if (parts.length>1) return parts.map(p=>p[0]).join('').toUpperCase();
+    return (s.slice(0,3)).replace(/[aeiou]/gi,'').slice(0,3) || s.slice(0,3);
+  }
+
+  function refreshHUD(){
+    elAge.textContent = Ages[state.you.age].name;
+    elGold.textContent = Math.floor(state.you.gold);
+    elIncome.textContent = `+${incomePerSec(state.you)}`;
+    const pct = state.you.baseHP / Game.baseHPmax;
+    elHp.style.width = (pct*100).toFixed(1)+'%';
+    elHpPct.textContent = Math.round(pct*100)+'%';
+
+    const canUp = state.you.age < Ages.length-1;
+    if (canUp){
+      const cost = Ages[state.you.age].upgradeCost;
+      elUpgrade.textContent = `⬆️ Advance Age (${cost})`;
+      elUpgrade.disabled = state.you.gold < cost;
+    } else {
+      elUpgrade.textContent = `Max Age`;
+      elUpgrade.disabled = true;
+    }
+  }
+
+  function flashGold(){
+    elGold.style.color = '#fff';
+    setTimeout(()=>{elGold.style.color = 'var(--gold)';}, 40);
+    setTimeout(()=>{elGold.style.color = '';}, 140);
+  }
+
+  elUpgrade.addEventListener('click', ()=>{
+    const f = state.you;
+    if (f.age >= Ages.length-1) return;
+    const cost = Ages[f.age].upgradeCost;
+    if (f.gold < cost) return;
+    f.gold -= cost;
+    f.age++;
+    buildUnitButtons();
+    f.baseHP = clamp(f.baseHP + Game.baseHPmax*0.08, 0, Game.baseHPmax);
+    state.ai.baseHP = clamp(state.ai.baseHP + Game.baseHPmax*0.04, 0, Game.baseHPmax);
+    burst(70, Game.laneY-40, 10);
+  });
+
+  elPause.addEventListener('click', ()=>{
+    state.paused = !state.paused;
+    showOverlay(state.paused);
+  });
+  const speedOptions = [1, 1.5, 2, 3];
+  let speedIdx = speedOptions.indexOf(3); // default x3
+  elSpeed.addEventListener('click', ()=>{
+    speedIdx = (speedIdx+1) % speedOptions.length;
+    state.timeScale = speedOptions[speedIdx];
+    elSpeed.textContent = `⏩ x${state.timeScale}`;
+  });
+
+  elResume.addEventListener('click', ()=>{ state.paused=false; showOverlay(false); });
+  elRestart.addEventListener('click', startGame);
+
+  // Tower buttons
+  elRepair.addEventListener('click', ()=>{
+    const cost = 60;
+    if (!canAfford(state.you, cost)) return;
+    spend(state.you, cost);
+    state.you.baseHP = clamp(state.you.baseHP + Game.baseHPmax*0.10, 0, Game.baseHPmax);
+    burst(70, Game.laneY-40, 8);
+  });
+  elDmg.addEventListener('click', ()=>{
+    const cost = 80;
+    if (!canAfford(state.you, cost)) return;
+    spend(state.you, cost);
+    state.you.baseTurret.dmg += 1;
+  });
+  elROF.addEventListener('click', ()=>{
+    const cost = 80;
+    if (!canAfford(state.you, cost)) return;
+    spend(state.you, cost);
+    state.you.baseTurret.rof *= 1.10;
+  });
+
+  function showOverlay(v){
+    elPauseOverlay.style.display = v ? 'grid' : 'none';
+    elPause.textContent = v ? '▶️ Resume' : '⏸️ Pause';
+  }
+
+  // ----------------------------
+  // Main Loop
+  // ----------------------------
+  let last=performance.now();
+  function frame(now){
+    const rawDt = Math.min(0.05, (now-last)/1000); last=now;
+    const dt = rawDt * state.timeScale;
+    update(dt);
+    draw();
+    refreshHUD();
+    requestAnimationFrame(frame);
+  }
+
+  function startGame(){
+    state = freshState();
+    resize();
+    buildUnitButtons();
+    renderQueue();
+    showOverlay(false);
+    elSpeed.textContent = `⏩ x${state.timeScale}`;
+  }
+
+  // Kickoff
+  startGame();
+  requestAnimationFrame(frame);
+
+  // Keyboard helpers
+  addEventListener('keydown', (e)=>{
+    if (e.key===' '){ state.paused = !state.paused; showOverlay(state.paused); e.preventDefault(); }
+    if (e.key==='1'){ clickUnitIdx(0); }
+    if (e.key==='2'){ clickUnitIdx(1); }
+    if (e.key==='3'){ clickUnitIdx(2); }
+  });
+  function clickUnitIdx(idx){
+    const spec = Ages[state.you.age].units[idx];
+    if (!spec) return;
+    queueUnit(spec);
+  }
+
+})();
+</script>
+</body>
+</html>
