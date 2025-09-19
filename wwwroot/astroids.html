@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Asteroids (with bullet limit & mini-boss)</title>
+  <style>
+    body{margin:0;background:#000;color:#fff;font-family:sans-serif;overflow:hidden}
+    #hud{position:fixed;top:10px;left:10px;display:flex;gap:10px}
+    .pill{background:rgba(255,255,255,.1);padding:4px 8px;border-radius:6px}
+    canvas{display:block}
+  </style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<div id="hud">
+  <div class="pill">Score: <span id="score">0</span></div>
+  <div class="pill">Lives: <span id="lives">3</span></div>
+</div>
+<script>
+(() => {
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  let scoreEl = document.getElementById('score');
+  let bestEl = document.getElementById('best');
+  let livesEl = document.getElementById('lives');
+  let levelEl = document.getElementById('level');
+  let msg = document.getElementById('msg');
+
+  function buildHUD(){
+    if(!document.getElementById('hud')){
+      const hud = document.createElement('div');
+      hud.id = 'hud';
+      hud.innerHTML = `
+        <div id="left">
+          <div class="pill">Score: <span id="score">0</span></div>
+          <div class="pill">Best: <span id="best">0</span></div>
+          <div class="pill">Lives: <span id="lives">3</span></div>
+          <div class="pill">Level: <span id="level">1</span></div>
+        </div>
+        <div id="right" class="pill" style="gap:10px">
+          <span>Controls:</span>
+          <kbd>←/A</kbd> <span>rotate</span>
+          <kbd>→/D</kbd> <span>rotate</span>
+          <kbd>↑/W</kbd> <span>thrust</span>
+          <kbd>Space</kbd> <span>fire</span>
+          <kbd>Shift</kbd> <span>hyperspace</span>
+          <kbd>P</kbd> <span>pause</span>
+          <kbd>R</kbd> <span>restart</span>
+        </div>`;
+      hud.style.position = 'fixed';
+      hud.style.inset = '0';
+      hud.style.pointerEvents = 'none';
+      hud.style.display = 'flex';
+      hud.style.alignItems = 'flex-start';
+      hud.style.justifyContent = 'space-between';
+      hud.style.padding = '12px';
+      document.body.appendChild(hud);
+    }
+    if(!document.getElementById('msg')){
+      const m = document.createElement('div');
+      m.id = 'msg';
+      document.body.appendChild(m);
+    }
+    scoreEl = document.getElementById('score');
+    bestEl = document.getElementById('best');
+    livesEl = document.getElementById('lives');
+    levelEl = document.getElementById('level');
+    msg = document.getElementById('msg');
+  }
+  function setText(el, txt){ if(el) el.textContent = txt; }
+  buildHUD();
+
+  // Fit canvas to device pixels
+  const DPR = Math.min(2, window.devicePixelRatio || 1);
+  function resize(){
+    canvas.width = Math.floor(innerWidth * DPR);
+    canvas.height = Math.floor(innerHeight * DPR);
+    canvas.style.width = innerWidth + 'px';
+    canvas.style.height = innerHeight + 'px';
+    ctx.setTransform(DPR,0,0,DPR,0,0);
+  }
+  addEventListener('resize', resize);
+  resize();
+
+  // Math helpers
+  const TAU = Math.PI * 2;
+  const rand = (a,b) => Math.random()*(b-a)+a;
+  const clamp = (v,a,b) => Math.max(a, Math.min(b,v));
+  const dist2 = (x1,y1,x2,y2) => {const dx=x2-x1, dy=y2-y1; return dx*dx+dy*dy};
+  const wrap = (obj) => { const w=innerWidth, h=innerHeight; if(obj.x<0) obj.x+=w; if(obj.x>w) obj.x-=w; if(obj.y<0) obj.y+=h; if(obj.y>h) obj.y-=h; };
+
+  // --- Tuning (classic-ish) ---
+  const MAX_BULLETS = 4;            // classic Asteroids limit
+  const BULLET_SPEED = 9.0;         // px/frame (scaled by 60fps-ish)
+  const BULLET_RANGE = 1000;        // px traveled before despawn
+  const ENEMY_BULLET_SPEED = 5.5;
+  const ENEMY_BULLET_RANGE = 1200;
+  const BOSS_HP_BASE = 10;          // increases slightly with level
+  const BOSS_KILLS_THRESH = 12;     // spawn a miniboss every N asteroid kills
+
+  // Game state
+  const state = {
+    running: true,
+    level: 1,
+    score: 0,
+    best: Number(localStorage.getItem('asteroids_best')||0),
+    lives: 3,
+    invincibleUntil: 0,
+    nextShotAt: 0,
+    entities: [],
+    particles: [],
+    keys: new Set(),
+    kills: 0,
+    bossActive: false,
+  };
+  setText(bestEl, state.best);
+
+  // Entity factories
+  function makeShip(){
+    return {
+      type:'ship', x: innerWidth/2, y: innerHeight/2, r: 12,
+      angle: -Math.PI/2, vx:0, vy:0, thrusting:false, dead:false,
+    };
+  }
+  function asteroid(x,y,size=3){ // size: 3 large, 2 medium, 1 small
+    const speed = rand(0.3, 1) + state.level*0.05;
+    const a = rand(0,TAU);
+    const points = 10 + Math.floor(Math.random()*5);
+    const irregular = [];
+    for(let i=0;i<points;i++) irregular.push(rand(0.75,1.25));
+    return {type:'asteroid', x,y, r: size*18, size, angle:0, spin:rand(-0.02,0.02),
+            vx: Math.cos(a)*speed, vy: Math.sin(a)*speed, irregular };
+  }
+  function bullet(x,y,angle){
+    const vx = Math.cos(angle)*BULLET_SPEED;
+    const vy = Math.sin(angle)*BULLET_SPEED;
+    return {type:'bullet', owner:'player', x,y, r:2, vx, vy, range: BULLET_RANGE};
+  }
+  function enemyBullet(x,y,angle){
+    const vx = Math.cos(angle)*ENEMY_BULLET_SPEED;
+    const vy = Math.sin(angle)*ENEMY_BULLET_SPEED;
+    return {type:'ebullet', owner:'enemy', x,y, r:2, vx, vy, range: ENEMY_BULLET_RANGE};
+  }
+  function particle(x,y,vx,vy,life,color){
+    return {type:'particle',x,y,vx,vy,life,color};
+  }
+  function spawnBoss(){
+    if(state.bossActive) return;
+    state.bossActive = true;
+    // spawn from left or right
+    const side = Math.random()<0.5 ? -40 : innerWidth+40;
+    const y = rand(60, innerHeight-60);
+    const hp = BOSS_HP_BASE + Math.floor((state.level-1)*1.5);
+    const speed = 1.2 + state.level*0.1;
+    const vx = side<0? speed : -speed;
+    state.entities.push({
+      type:'boss', x: side, y, r: 28, vx, vy: rand(-0.4,0.4), hp, fireCooldown: 0, lastShot: 0
+    });
+    showMsg('<div class="card"><strong>Mini Boss!</strong><div style="opacity:.8">Shoot it down!</div></div>');
+    setTimeout(()=>{ msg.innerHTML=''; }, 1000);
+  }
+
+  // Initialize level
+  function spawnLevel(n = 3 + state.level){
+    const list = state.entities;
+    // Clear asteroids/bullets, keep ship
+    const ship = list.find(e=>e.type==='ship') || makeShip();
+    state.entities = [ship];
+    // Spawn asteroids away from ship
+    for(let i=0;i<n;i++){
+      let x,y; let tries=0;
+      do { x = rand(0, innerWidth); y = rand(0, innerHeight); tries++; }
+      while(dist2(x,y,ship.x,ship.y) < 200*200 && tries<50);
+      state.entities.push(asteroid(x,y,3));
+    }
+    state.invincibleUntil = performance.now()+2500;
+    setText(levelEl, state.level);
+  }
+
+  // Reset game
+  function reset(){
+    state.level = 1; state.score = 0; state.lives = 3; state.entities = [makeShip()];
+    state.particles.length = 0; state.running = true; hideMsg();
+    state.kills = 0; state.bossActive = false;
+    setText(scoreEl, 0); setText(livesEl, state.lives); spawnLevel();
+  }
+
+  // UI messages
+  function showMsg(html){ msg.innerHTML = `<div class="card">${html}</div>`; }
+  function hideMsg(){ msg.innerHTML = ''; }
+  showMsg(`<h2 style="margin:0 0 6px">ASTEROIDS</h2>
+           <div style="opacity:.8;margin-bottom:10px">Press <kbd>Space</kbd> to start</div>
+           <div style="opacity:.7;font-size:13px">Move with ← → and thrust with ↑. Shoot with Space. Hyperspace with Shift.</div>`);
+
+  // Input
+  const down = (e)=>{ state.keys.add(e.code); if(e.code==='Space') e.preventDefault(); }
+  const up   = (e)=>{ state.keys.delete(e.code); }
+  addEventListener('keydown', down);
+  addEventListener('keyup', up);
+
+  // Touch buttons
+  const bindHold = (el, code) => {
+    let downHandler = ()=>state.keys.add(code);
+    let upHandler = ()=>state.keys.delete(code);
+    el.addEventListener('touchstart', (e)=>{e.preventDefault(); downHandler();});
+    el.addEventListener('touchend',   (e)=>{e.preventDefault(); upHandler();});
+    el.addEventListener('mousedown',  (e)=>{e.preventDefault(); downHandler();});
+    el.addEventListener('mouseup',    (e)=>{e.preventDefault(); upHandler();});
+    el.addEventListener('mouseleave', upHandler);
+  };
+  if (matchMedia('(max-width:820px)').matches){
+    bindHold(document.getElementById('btn-left'), 'ArrowLeft');
+    bindHold(document.getElementById('btn-right'), 'ArrowRight');
+    bindHold(document.getElementById('btn-thrust'), 'ArrowUp');
+    bindHold(document.getElementById('btn-fire'), 'Space');
+    document.getElementById('btn-pause').addEventListener('click', ()=>{state.running=!state.running});
+  }
+
+  // Game loop
+  function step(){
+    if(state.running) update();
+    render();
+    requestAnimationFrame(step);
+  }
+
+  // Physics & game rules
+  function update(){
+    const t = performance.now();
+    const list = state.entities;
+    const ship = list.find(e=>e.type==='ship');
+
+    // Start on first shot/space
+    if(msg.innerHTML && (state.keys.has('Space') || state.keys.has('Enter'))){ hideMsg(); }
+
+    // Pause
+    if(state.keys.has('KeyP')){ state.running = false; state.keys.delete('KeyP'); showMsg('<h3 style="margin:0 0 8px">Paused</h3><div>Press <kbd>P</kbd> to resume</div>'); return; }
+
+    // Restart
+    if(state.keys.has('KeyR')){ state.keys.delete('KeyR'); reset(); return; }
+
+    // Ship controls
+    if(ship && !ship.dead){
+      if(state.keys.has('ArrowLeft')||state.keys.has('KeyA')) ship.angle -= 0.08;
+      if(state.keys.has('ArrowRight')||state.keys.has('KeyD')) ship.angle += 0.08;
+      ship.thrusting = state.keys.has('ArrowUp')||state.keys.has('KeyW');
+      if(ship.thrusting){ ship.vx += Math.cos(ship.angle)*0.15; ship.vy += Math.sin(ship.angle)*0.15; }
+      // drag
+      ship.vx *= 0.99; ship.vy *= 0.99;
+      ship.x += ship.vx; ship.y += ship.vy; wrap(ship);
+
+      // Fire (classic limit)
+      if((state.keys.has('Space')||state.keys.has('KeyJ')) && t>state.nextShotAt){
+        state.nextShotAt = t + 150; // fire rate
+        const bullets = list.filter(e=>e.type==='bullet' && e.owner==='player').length;
+        if(bullets < MAX_BULLETS){
+          const bx = ship.x + Math.cos(ship.angle)*ship.r;
+          const by = ship.y + Math.sin(ship.angle)*ship.r;
+          list.push(bullet(bx,by,ship.angle));
+        }
+      }
+
+      // Hyperspace
+      if(state.keys.has('ShiftLeft')||state.keys.has('ShiftRight')){
+        state.keys.delete('ShiftLeft'); state.keys.delete('ShiftRight');
+        ship.x = rand(0, innerWidth); ship.y = rand(0, innerHeight);
+        state.invincibleUntil = t + 1200;
+      }
+    }
+
+    // Update bullets (player & enemy)
+    for(const b of list){
+      if(b.type==='bullet' || b.type==='ebullet'){
+        b.x += b.vx; b.y += b.vy; b.range -= Math.hypot(b.vx,b.vy);
+        if(b.range<=0) b.dead = true; wrap(b);
+      }
+    }
+
+    // Update asteroids
+    for(const a of list){
+      if(a.type==='asteroid'){
+        a.x += a.vx; a.y += a.vy; a.angle += a.spin; wrap(a);
+      }
+    }
+
+    // Update boss
+    const boss = list.find(e=>e.type==='boss');
+    if(boss){
+      boss.x += boss.vx; boss.y += boss.vy;
+      // gentle vertical drift
+      if(boss.y<40||boss.y>innerHeight-40) boss.vy*=-1;
+      wrap(boss);
+      // Fire at the player with a bit of inaccuracy
+      boss.fireCooldown -= 16; // approx ms per frame
+      if(ship && !ship.dead && boss.fireCooldown<=0){
+        const ang = Math.atan2(ship.y-boss.y, ship.x-boss.x) + rand(-0.15,0.15);
+        list.push(enemyBullet(boss.x, boss.y, ang));
+        boss.fireCooldown = 600 - Math.min(300, state.level*30); // faster later
+      }
+    }
+
+    // Collisions
+    const now = performance.now();
+    for(const a of list){
+      if(a.type==='asteroid'){
+        // Bullet vs asteroid
+        for(const b of list){
+          if(b.type!=='bullet'||b.dead) continue;
+          const r = a.r + b.r;
+          if(dist2(a.x,a.y,b.x,b.y) < r*r){
+            b.dead = true;
+            explodeAsteroid(a);
+          }
+        }
+      }
+    }
+
+    // Bullets vs boss
+    if(boss){
+      for(const b of list){
+        if(b.type!=='bullet'||b.dead) continue;
+        if(dist2(boss.x,boss.y,b.x,b.y) < (boss.r+b.r)*(boss.r+b.r)){
+          b.dead = true; boss.hp--;
+          // hit spark
+          state.particles.push(particle(b.x,b.y, rand(-1,1), rand(-1,1), 25, 'rgba(87,230,193,.9)'));
+          if(boss.hp<=0){ explodeBoss(boss); }
+        }
+      }
+    }
+
+    // Enemy bullets vs ship
+    if(ship && !ship.dead && now>state.invincibleUntil){
+      for(const eb of list){
+        if(eb.type!=='ebullet' || eb.dead) continue;
+        if(dist2(eb.x,eb.y,ship.x,ship.y) < (ship.r+eb.r)*(ship.r+eb.r)){
+          eb.dead = true; killShip(ship);
+        }
+      }
+    }
+
+    // Ship vs asteroid
+    for(const a of list){
+      if(a.type!=='asteroid') continue;
+      if(ship && !ship.dead && now>state.invincibleUntil){
+        const r = a.r + ship.r*0.8; // forgiving hitbox
+        if(dist2(a.x,a.y,ship.x,ship.y) < r*r){
+          killShip(ship);
+        }
+      }
+    }
+
+    // Cleanup
+    for(let i=list.length-1;i>=0;i--) if(list[i].dead) list.splice(i,1);
+
+    // Particles
+    for(const p of state.particles){ p.x+=p.vx; p.y+=p.vy; p.life--; wrap(p); }
+    for(let i=state.particles.length-1;i>=0;i--) if(state.particles[i].life<=0) state.particles.splice(i,1);
+
+    // Level clear?
+    if(list.every(e=>e.type!=='asteroid') && !state.bossActive){
+      state.level++; spawnLevel();
+    }
+  }
+
+  function explodeAsteroid(a){
+    a.dead = true; state.kills++;
+    // Score by size
+    const add = a.size===3? 20 : a.size===2? 50 : 100;
+    state.score += add; setText(scoreEl, state.score);
+    // Best
+    if(state.score > state.best){ state.best = state.score; setText(bestEl, state.best); localStorage.setItem('asteroids_best', state.best); }
+    // Spawn boss after enough kills
+    if(state.kills>0 && state.kills % BOSS_KILLS_THRESH === 0){
+      spawnBoss();
+    }
+    // Split
+    if(a.size>1){
+      for(let i=0;i<2;i++){
+        const child = asteroid(a.x, a.y, a.size-1);
+        // nudge children
+        const ang = rand(0,TAU);
+        child.vx += Math.cos(ang)*rand(0.5,1.2);
+        child.vy += Math.sin(ang)*rand(0.5,1.2);
+        state.entities.push(child);
+      }
+    }
+    // particles
+    for(let i=0;i<16;i++){
+      const ang = rand(0,TAU); const sp = rand(1,3);
+      state.particles.push(particle(a.x,a.y, Math.cos(ang)*sp, Math.sin(ang)*sp, 30+Math.random()*30, 'rgba(255,255,255,.8)'));
+    }
+  }
+
+  function explodeBoss(b){
+    b.dead = true; state.bossActive = false;
+    state.score += 500; setText(scoreEl, state.score);
+    if(state.score > state.best){ state.best = state.score; setText(bestEl, state.best); localStorage.setItem('asteroids_best', state.best); }
+    for(let i=0;i<48;i++){
+      const ang = rand(0,TAU); const sp = rand(1,3.5);
+      state.particles.push(particle(b.x,b.y, Math.cos(ang)*sp, Math.sin(ang)*sp, 50+Math.random()*30, 'rgba(87,230,193,.9)'));
+    }
+  }
+
+  function killShip(ship){
+    ship.dead = true;
+    for(let i=0;i<24;i++){
+      const ang = rand(0,TAU); const sp = rand(1,3.5);
+      state.particles.push(particle(ship.x,ship.y, Math.cos(ang)*sp, Math.sin(ang)*sp, 40+Math.random()*20, 'rgba(255,107,107,.9)'));
+    }
+    state.lives--; setText(livesEl, state.lives);
+    if(state.lives<0){
+      state.running=false;
+      showMsg(`<h3 style=\"margin:0 0 8px\">Game Over</h3>
+               <div style=\"margin-bottom:10px\">Score ${state.score} · Best ${state.best}</div>
+               <div><kbd>R</kbd> to restart</div>`);
+    } else {
+      // respawn ship after delay
+      setTimeout(()=>{
+        const s = makeShip();
+        state.entities.push(s);
+        state.invincibleUntil = performance.now()+2000;
+      }, 900);
+    }
+  }
+
+  // Rendering
+  function render(){
+    ctx.clearRect(0,0,innerWidth,innerHeight);
+    const list = state.entities;
+
+    // Stars background (cheap twinkle)
+    ctx.save();
+    ctx.globalAlpha = 0.15;
+    for(let i=0;i<80;i++){
+      const x = (i*137.5 + performance.now()*0.01) % innerWidth;
+      const y = (i*91.7 + i*13) % innerHeight;
+      ctx.fillRect(x,y,1,1);
+    }
+    ctx.restore();
+
+    // Particles
+    for(const p of state.particles){
+      ctx.globalAlpha = clamp(p.life/60,0,1);
+      ctx.fillStyle = p.color || 'white';
+      ctx.fillRect(p.x,p.y,2,2);
+      ctx.globalAlpha = 1;
+    }
+
+    for(const e of list){
+      switch(e.type){
+        case 'ship': drawShip(e); break;
+        case 'asteroid': drawAsteroid(e); break;
+        case 'bullet': drawBullet(e); break;
+        case 'ebullet': drawEnemyBullet(e); break;
+        case 'boss': drawBoss(e); break;
+      }
+    }
+  }
+
+  function drawShip(s){
+    ctx.save();
+    ctx.translate(s.x, s.y);
+    ctx.rotate(s.angle);
+    const inv = performance.now() < state.invincibleUntil;
+    if(inv && Math.floor(performance.now()/120)%2===0){ ctx.globalAlpha = 0.25; }
+    ctx.strokeStyle = '#e7ecef';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(14,0);
+    ctx.lineTo(-12,-9);
+    ctx.lineTo(-6,-6);
+    ctx.lineTo(-6,6);
+    ctx.lineTo(-12,9);
+    ctx.closePath();
+    ctx.stroke();
+    // Thrust
+    if(s.thrusting){
+      ctx.beginPath();
+      ctx.moveTo(-12,0);
+      ctx.lineTo(-20,0);
+      ctx.strokeStyle = '#57e6c1';
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawAsteroid(a){
+    ctx.save();
+    ctx.translate(a.x,a.y); ctx.rotate(a.angle);
+    ctx.strokeStyle = 'rgba(231,236,239,.95)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    const n = a.irregular.length; const R=a.r;
+    for(let i=0;i<n;i++){
+      const ang = (i/n)*TAU;
+      const rr = R * a.irregular[i];
+      const x = Math.cos(ang)*rr, y = Math.sin(ang)*rr;
+      if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    }
+    ctx.closePath(); ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawBullet(b){
+    ctx.beginPath(); ctx.arc(b.x,b.y,2,0,TAU);
+    ctx.fillStyle = '#57e6c1'; ctx.fill();
+  }
+  function drawEnemyBullet(b){
+    ctx.beginPath(); ctx.arc(b.x,b.y,2,0,TAU);
+    ctx.fillStyle = '#ff6b6b'; ctx.fill();
+  }
+  function drawBoss(b){
+    ctx.save();
+    ctx.translate(b.x,b.y);
+    // saucer body
+    ctx.strokeStyle = '#57e6c1';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(0,0, b.r, b.r*0.55, 0, 0, TAU);
+    ctx.stroke();
+    // dome
+    ctx.beginPath();
+    ctx.arc(0,-6, 10, Math.PI, 0);
+    ctx.stroke();
+    // hp pips
+    const pips = Math.max(0,b.hp);
+    for(let i=0;i<pips;i++){
+      ctx.fillStyle = 'rgba(87,230,193,.9)';
+      ctx.fillRect(-b.r+4 + i*4, b.r*0.7, 3, 3);
+    }
+    ctx.restore();
+  }
+
+  // Start
+  reset();
+  step();
+
+  // Pause/resume with P when message visible
+  addEventListener('keydown', (e)=>{
+    if(e.code==='KeyP'){
+      state.running = !state.running;
+      if(!state.running) showMsg('<h3 style="margin:0 0 8px">Paused</h3><div>Press <kbd>P</kbd> to resume</div>');
+      else hideMsg();
+    }
+  });
+
+})();
+</script>
+</body>
+</html>
