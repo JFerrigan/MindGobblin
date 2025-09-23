@@ -1,207 +1,246 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Tetris</title>
     <style>
-      :root {
-        --bg: #0e1225;
-        --panel: #121735;
-        --ink: #e8edff;
-        --muted: #a8b0d9;
-        --accent: #6be0ff;
+      body {
+        margin: 0;
+        font-family: sans-serif;
+        background: #111;
+        color: #eee;
+        display: flex;
+        justify-content: center;
+        align-items: flex-start;
+        height: 100vh;
+        overflow: hidden;
       }
 
-      * {
+      .container {
+        display: flex;
+        flex-direction: row;
+        max-width: 100%;
+        height: 100%;
+        padding: 5px;
         box-sizing: border-box;
       }
 
-      body {
-        margin: 0;
-        display: grid;
-        place-items: center;
-        min-height: 100vh;
-        background: #0f1225;
-        font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial,
-          sans-serif;
-        color: var(--ink);
-      }
-
-      .wrap {
-        display: grid;
-        grid-template-columns: auto 260px;
-        gap: 18px;
-        padding: 18px;
-      }
-
-      canvas#game {
-        background: #172761;
-        border-radius: 5px;
-        border: 1px solid #2a3267;
-        box-shadow: 0 15px 45px #0006;
-      }
-
-      .panel {
-        background: linear-gradient(180deg, #242a5a, #1c2357);
-        border: 1px solid #2a3267;
-        border-radius: 16px;
-        box-shadow: 0 10px 30px #0008;
-        padding: 16px;
-      }
-
-      h1 {
-        margin: 0 0 8px;
-        font-size: 18px;
-        color: #bfc8ff;
-      }
-
-      .stats {
-        display: grid;
-        gap: 10px;
-      }
-
-      .stat {
-        background: #0e1330;
-        border: 1px solid #2a3267;
-        border-radius: 12px;
-        padding: 10px;
-      }
-
-      .stat b {
-        display: block;
-        font-size: 12px;
-        color: var(--muted);
-        text-transform: uppercase;
-        letter-spacing: 0.12em;
-      }
-
-      .stat .v {
-        font: 700 22px/1.2 ui-monospace, Consolas, Menlo, monospace;
-        color: var(--accent);
-      }
-
-      .mini {
-        height: 96px;
-        background: #0e1330;
-        border: 1px solid #2a3267;
-        border-radius: 12px;
-        display: grid;
-        place-items: center;
-      }
-
-      .grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 12px;
-      }
-
-      .row {
+      .left-panel {
         display: flex;
-        gap: 10px;
-        margin-top: 6px;
+        flex-direction: column;
+        align-items: center;
+        justify-content: flex-start;
+        padding: 5px;
+        flex-shrink: 0;
+      }
+
+      #score-container {
+        font-size: 20px;
+        margin-bottom: 5px;
+      }
+
+      #score-label {
+        font-weight: bold;
+      }
+
+      #score {
+        font-weight: bold;
+      }
+
+      /* Game canvas scaling */
+      .game-wrapper {
+        width: 100%;
+        max-width: 240px; /* base width */
+      }
+
+      #game {
+        width: 100%; /* scales down with container */
+        height: auto;
+        background: #222;
+        border: 2px solid #555;
+        display: block;
+      }
+
+      .right-panel {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start; /* Align the content to the top */
+        padding: 5px;
+        width: 120px; /* narrower for small screens */
+        height: 100%;
+        box-sizing: border-box;
+        flex-shrink: 0;
+      }
+
+      .panel-section {
+        margin-bottom: 8px;
+        text-align: center;
+        font-weight: bold;
+      }
+
+      .mini-wrapper {
+        width: 100%;
+        max-width: 80px;
+        margin: 0 auto;
+      }
+
+      .mini-wrapper canvas {
+        width: 100%;
+        height: auto;
+        background: #222;
+        border: 2px solid #555;
+        display: block;
       }
 
       button {
-        all: unset;
-        background: linear-gradient(180deg, #22a6ff, #1180ff);
-        color: white;
-        padding: 0.6em 0.9em;
-        border-radius: 10px;
-        font-weight: 700;
+        width: 100%;
+        padding: 6px;
+        margin-top: 4px;
+        font-size: 13px;
+        background: #444;
+        color: #fff;
+        border: none;
+        border-radius: 4px;
+      }
+
+      button:hover {
+        background: #666;
         cursor: pointer;
+      }
+
+      #version {
+        font-size: 10px;
+        color: #888;
         text-align: center;
+        margin-top: 8px;
       }
 
-      button.secondary {
-        background: #424b9b;
+      .modal {
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0,0,0,0.8);
+        display: none;
+        justify-content: center;
+        align-items: center;
+        z-index: 1000;
       }
 
-      .keys {
-        margin-top: 6px;
-        font-size: 12px;
-        color: var(--muted);
+      .modal-content {
+        background: #222;
+        padding: 20px;
+        border-radius: 8px;
+        max-width: 400px;
+        width: 90%;
+        color: #fff;
+        text-align: left;
       }
 
-      .keys kbd {
-        background: #11173a;
-        border: 1px solid #2a3267;
-        border-bottom-color: #10152f;
-        border-radius: 6px;
-        padding: 0.2em 0.45em;
-        margin: 0 0.15em;
-        font: 600 11px/1 ui-monospace, Consolas;
+      .modal-content h2 {
+        margin-top: 0;
       }
 
-      .note {
-        margin-top: 10px;
-        font-size: 12px;
-        color: #97a1d7;
+      .modal-content button {
+        background: #666;
+        margin-top: 15px;
       }
 
-      @media (max-width: 800px) {
-        .wrap {
-          grid-template-columns: 1fr;
-          gap: 12px;
+      /* Smallest screens (e.g. iPhone SE 2022 vertical) */
+      @media (max-width: 375px) {
+        .container {
+          padding: 2px;
         }
+        .right-panel {
+          width: 100px;
+          font-size: 12px;
+        }
+        #score-container {
+          font-size: 16px;
+        }
+        button {
+          font-size: 12px;
+          padding: 5px;
+        }
+      }
+
+      /* Align the "Next" box to the top of the grid */
+      .right-panel .panel-section:first-child {
+        margin-top: 10px;
+      }
+      
+      /* Add some margin space below "Lines" */
+      .right-panel .panel-section:nth-child(4) {
+        margin-bottom: 70px;
       }
     </style>
   </head>
 
   <body>
-    <div class="wrap">
-      <!-- 10x20 board: 24px tiles = 240x480 -->
-      <canvas
-        id="game"
-        width="240"
-        height="480"
-        aria-label="Tetris board"
-        role="img"
-      ></canvas>
+    <div class="container">
+      <!-- Left side: Score + Game -->
+      <div class="left-panel">
+        <div id="score-container">
+          <span id="score-label">Score: </span><span id="score">0</span>
+        </div>
+        <div class="game-wrapper">
+          <canvas id="game" width="240" height="480"></canvas>
+        </div>
+      </div>
 
-      <aside class="panel">
-        <h1>Tetris</h1>
-        <div class="stats">
-          <div class="stat">
-            <b>Score</b>
-            <div class="v" id="score">0</div>
-          </div>
-          <div class="stat">
-            <b>Lines</b>
-            <div class="v" id="lines">0</div>
-          </div>
-          <div class="stat">
-            <b>Level</b>
-            <div class="v" id="level">1</div>
-          </div>
-          <div class="grid">
-            <div class="mini">
-              <b>Next</b>
-              <canvas id="next" width="96" height="96"></canvas>
-            </div>
-            <div class="mini">
-              <b>Hold</b>
-              <canvas id="hold" width="96" height="96"></canvas>
-            </div>
-          </div>
-          <div class="row">
-            <button id="start">Start</button>
-            <button id="pause" class="secondary">Pause</button>
-          </div>
-          <div class="keys">
-            <div>
-              <kbd>&larr;</kbd><kbd>&rarr;</kbd> Move • <kbd>&uarr;</kbd> Right rotate • <kbd>Z</kbd> Left rotate • 
-              <kbd>Space</kbd> Hard drop • <kbd>&darr;</kbd> Soft drop • <kbd>C</kbd> Hold 
-            </div>
-            <div>
-              <kbd>R</kbd> Start/Restart • <kbd>P</kbd> Pause 
-            </div>
-          </div>
-          <div class="note">
-            v1.00 (not mobile-ready)
+      <!-- Right side panel -->
+      <div class="right-panel">
+        <div class="panel-section">
+          <div>Next</div>
+          <div class="mini-wrapper">
+            <canvas id="next" width="90" height="90"></canvas>
           </div>
         </div>
-      </aside>
+
+        <div class="panel-section">
+          <div>Hold</div>
+          <div class="mini-wrapper">
+            <canvas id="hold" width="90" height="90"></canvas>
+          </div>
+          <button id="holdBtn">Hold</button>
+        </div>
+
+        <div class="panel-section">LVL: <span id="level">1</span></div>
+        <div class="panel-section">Lines: <span id="lines">0</span></div>
+
+        <div class="panel-section">
+          <button id="startBtn">Start</button>
+          <button id="pauseBtn">Pause</button>
+          <button id="controlsBtn">Controls</button>
+        </div>
+
+        <div id="version">v1.01</div>
+      </div>
+    </div>
+
+    <!-- Controls Modal -->
+    <div id="controlsModal" class="modal">
+      <div class="modal-content">
+        <h2>Controls</h2>
+        <h3>Keyboard</h3>
+        <ul>
+          <li>Arrow Left/Right: Move piece</li>
+          <li>Arrow Down: Soft drop</li>
+          <li>Space: Hard drop</li>
+          <li>Up Arrow: Rotate right</li>
+          <li>Z: Rotate left</li>
+          <li>R: Start/Restart game</li>
+          <li>P: Pause</li>
+          <li>C: Hold</li>
+        </ul>
+        <h3>Touch</h3>
+        <ul>
+          <li>Swipe Left/Right: Move piece</li>
+          <li>Swipe Down (slow): Soft drop</li>
+          <li>Swipe Down (quick): Hard drop</li>
+          <li>Tap: Rotate right</li>
+        </ul>
+        <button id="closeControlsBtn">Close</button>
+      </div>
     </div>
 
     <script>
@@ -214,6 +253,7 @@
         const ctx = canvas.getContext("2d");
         const nextCtx = document.getElementById("next").getContext("2d");
         const holdCtx = document.getElementById("hold").getContext("2d");
+        const comboInterval = 2000; // in milliseconds
 
         // Tetromino definitions
         const P = {
@@ -367,6 +407,8 @@
         let score = 0,
           lines = 0,
           level = 1;
+        let lastComboTime = 0,
+          comboCount = 0;
         // clearing animation state
         let clearing = null; // {rows:[...], elapsed:ms, duration:ms}
 
@@ -463,9 +505,11 @@
             if (grid[y].every((v) => v)) rows.push(y);
           return rows;
         }
+
         function startClear(rows) {
           clearing = { rows: rows.slice(), elapsed: 0, duration: 350 };
         }
+
         function finalizeClear() {
           const rows = clearing.rows.slice().sort((a, b) => b - a);
           const n = rows.length;
@@ -475,14 +519,24 @@
           for (let i = 0; i < n; i++) grid.unshift(Array(COLS).fill(0));
           if (n) {
             const pts = [0, 40, 100, 300, 1200][n] * level;
+            const now = performance.now();
+            const timeSinceCombo = now - lastComboTime;
+            lastComboTime = now;
+            if (timeSinceCombo < comboInterval) {
+              comboCount++;
+            } else {
+              comboCount = 0;
+            }
+            const comboPtsBonus = Math.round(.25 * pts * comboCount);
             score += pts;
+            score += comboPtsBonus;
             lines += n;
             level = 1 + ((lines / 10) | 0);
             dropInterval = Math.max(80, 900 - (level - 1) * 80);
             updateHUD();
           }
           clearing = null;
-          spawn();
+          //spawn();
         }
 
         function spawn() {
@@ -660,6 +714,8 @@
           score = 0;
           lines = 0;
           level = 1;
+          lastComboTime = 0;
+          comboCount = 0;
           dropInterval = 900;
           started = true;
           over = false;
@@ -685,18 +741,19 @@
         function loop(t = 0) {
           const dt = t - lastTime;
           lastTime = t;
+
           // Horizonal auto-repeat
           const now = t;
           if (hdir === -1 && keys.left.held) {
             if (now >= keys.left.next) {
-              if (!clearing) {
+              if (current) {
                 move(-1);
               }
               keys.left.next = now + ARR;
             }
           } else if (hdir === 1 && keys.right.held) {
             if (now >= keys.right.next) {
-              if (!clearing) {
+              if (current) {
                 move(1);
               }
               keys.right.next = now + ARR;
@@ -725,13 +782,14 @@
           requestAnimationFrame(loop);
         }
 
+        // --- Input Constants
         // Horizontal auto-repeat config
-        const DAS = 80; // initial delay before repeat (ms) — set to 0 for no wait
+        const DAS = 100; // initial delay before repeat (ms) — set to 0 for no wait
         const ARR = 60; // repeat interval (ms) — tweak to taste (e.g., 30–80ms)
 
         // Soft-drop auto-repeat
         const SDR = 0; // initial delay for soft drop (ms)
-        const SDARR = 30; // repeat interval for soft drop (ms)
+        const SDARR = 60; // repeat interval for soft drop (ms)
 
         // Key state for left/right
         let hdir = 0; // -1 = left, 1 = right, 0 = none
@@ -741,7 +799,8 @@
           down: { held: false, next: 0 },
         };
 
-        // Inputs
+        // --- Keyboard Inputs
+        // Input listener
         window.addEventListener(
           "keydown",
           (e) => {
@@ -818,8 +877,132 @@
           }
         });
 
-        document.getElementById("start").onclick = start;
-        document.getElementById("pause").onclick = pauseToggle;
+
+        // --- Touch inputs
+        const gameCanvas = document.getElementById("game");
+
+        let touchStartX = 0;
+        let touchStartY = 0;
+        let touchStartTime = 0;
+        let lastMoveX = 0;
+
+        let softDropInterval = null;
+
+        const swipeThreshold = 30;   // px min for swipe (down)
+        const fastSwipeTime = 200;   // ms threshold for quick swipe (hard drop)
+        const tapThreshold = 10;     // px max for tap
+        const tapTime = 200;         // ms max for tap
+        const moveStep = 20;         // horizontal step distance in px
+        const softDropRate = 50;     // ms between softDrop() calls while held
+
+        gameCanvas.addEventListener("touchstart", (e) => {
+          if (e.touches.length !== 1) return;
+          const rect = gameCanvas.getBoundingClientRect();
+          const x = e.touches[0].clientX;
+          const y = e.touches[0].clientY;
+
+          if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom)
+            return;
+
+          e.preventDefault();
+
+          touchStartX = x;
+          touchStartY = y;
+          touchStartTime = performance.now();
+          lastMoveX = x;
+        }, { passive: false });
+
+        gameCanvas.addEventListener("touchmove", (e) => {
+          if (e.touches.length !== 1) return;
+          const rect = gameCanvas.getBoundingClientRect();
+          const x = e.touches[0].clientX;
+          const y = e.touches[0].clientY;
+
+          if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom)
+            return;
+
+          e.preventDefault();
+
+          const dx = x - lastMoveX;
+          const dy = y - touchStartY;
+          const dt = performance.now() - touchStartTime;
+
+          // Horizontal drag = piece movement
+          if (Math.abs(dx) >= moveStep && Math.abs(dx) > Math.abs(dy)) {
+            if (dx > 0) {
+              move(1);
+            } else {
+              move(-1);
+            }
+            lastMoveX = x;
+          }
+
+          // Vertical drag (slow downward hold) = soft drop
+          if (dy > swipeThreshold && dt >= fastSwipeTime && !softDropInterval) {
+            softDrop(); // immediate drop on detection
+            softDropInterval = setInterval(() => softDrop(), softDropRate);
+          }
+        }, { passive: false });
+
+        gameCanvas.addEventListener("touchend", (e) => {
+          const rect = gameCanvas.getBoundingClientRect();
+          const x = e.changedTouches[0].clientX;
+          const y = e.changedTouches[0].clientY;
+
+          if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom)
+            return;
+
+          e.preventDefault();
+
+          clearInterval(softDropInterval);
+          softDropInterval = null;
+
+          const dx = x - touchStartX;
+          const dy = y - touchStartY;
+          const dt = performance.now() - touchStartTime;
+
+          const absDx = Math.abs(dx);
+          const absDy = Math.abs(dy);
+
+          if (absDx < tapThreshold && absDy < tapThreshold && dt < tapTime) {
+            // TAP = rotate clockwise
+            rotate();
+          } else if (dy > swipeThreshold && dt < fastSwipeTime) {
+            // Quick downward flick = hard drop
+            hardDrop();
+          }
+        }, { passive: false });
+
+        // Setup buttons
+        document.getElementById("startBtn").onclick = start;
+        document.getElementById("pauseBtn").onclick = pauseToggle;
+        // Hook up Hold button
+        document.getElementById("holdBtn").addEventListener("click", () => {
+          hold();
+        });
+
+        // Modal logic
+        const controlsBtn = document.getElementById("controlsBtn");
+        const controlsModal = document.getElementById("controlsModal");
+        const closeControlsBtn = document.getElementById("closeControlsBtn");
+
+        controlsBtn.addEventListener("click", () => {
+          pauseToggle();
+          controlsModal.style.display = "flex";
+        });
+
+        closeControlsBtn.addEventListener("click", () => {
+          pauseToggle();
+          controlsModal.style.display = "none";
+        });
+
+        // Close modal if clicking outside content
+        controlsModal.addEventListener("click", (e) => {
+          if (e.target === controlsModal) {
+            pauseToggle();
+            controlsModal.style.display = "none";
+          }
+        });
 
         // Boot
         grid = newGrid();
