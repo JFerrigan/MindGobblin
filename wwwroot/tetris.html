@@ -556,10 +556,12 @@
         }
 
         function softDrop() {
-          current.y++;
-          if (collision(grid, current)) {
-            current.y--;
-            lockPiece();
+          if (!paused || !over) {
+            current.y++;
+            if (collision(grid, current)) {
+              current.y--;
+              lockPiece();
+            }
           }
         }
         function hardDrop() {
@@ -685,7 +687,7 @@
           }
 
           if (paused && !over) overlay("Paused");
-          if (over) overlay("Game Over\nPress R to restart");
+          if (over) overlay("Game Over\n\nPress 'Start' to\nTry Again");
         }
 
         function overlay(text) {
@@ -945,12 +947,14 @@
         }, { passive: false });
 
         gameCanvas.addEventListener("touchend", (e) => {
-          const rect = gameCanvas.getBoundingClientRect();
+          //const rect = gameCanvas.getBoundingClientRect();
           const x = e.changedTouches[0].clientX;
           const y = e.changedTouches[0].clientY;
 
+          /* // Don't want to ignore inputs outside game grid for touchEnd
           if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom)
             return;
+          */
 
           e.preventDefault();
 
