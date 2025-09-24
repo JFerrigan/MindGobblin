@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wordle Game</title>
+    <style>
+        /* General Body Styles */
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: #f4f4f4;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+
+        .game-container {
+            text-align: center;
+            background-color: #fff;
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+            padding: 30px;
+            width: 400px;
+            max-width: 100%;
+        }
+
+        h1 {
+            font-size: 2rem;
+            margin-bottom: 20px;
+            color: #333;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-rows: repeat(6, 1fr);
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .row {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 10px;
+        }
+
+        .box {
+            width: 50px;
+            height: 50px;
+            text-align: center;
+            font-size: 1.5rem;
+            border: 2px solid #ccc;
+            border-radius: 5px;
+            background-color: #f0f0f0;
+            color: #333;
+        }
+
+        .box:disabled {
+            background-color: #e0e0e0;
+            cursor: not-allowed;
+        }
+
+        #guess {
+            width: 80%;
+            padding: 10px;
+            font-size: 1rem;
+            margin-top: 20px;
+            border: 2px solid #ccc;
+            border-radius: 5px;
+            margin-bottom: 10px;
+        }
+
+        #submit {
+            padding: 10px 20px;
+            font-size: 1rem;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        #submit:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+
+        #submit:hover {
+            background-color: #45a049;
+        }
+
+        #message {
+            margin-top: 20px;
+            font-size: 1rem;
+            color: #333;
+        }
+
+        .play-again {
+            margin-top: 20px;
+            padding: 10px 20px;
+            background-color: #2196F3;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        .play-again:hover {
+            background-color: #1976D2;
+        }
+
+        /* Feedback Colors */
+        .green {
+            background-color: #4CAF50;
+            color: white;
+        }
+
+        .yellow {
+            background-color: #FFEB3B;
+            color: black;
+        }
+
+        .gray {
+            background-color: #BDBDBD;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <h1>Wordle</h1>
+        <div class="grid">
+            <!-- 6 rows for guesses -->
+            <div class="row">
+                <input type="text" maxlength="1" class="box" disabled>
+                <input type="text" maxlength="1" class="box" disabled>
+                <input type="text" maxlength="1" class="box" disabled>
+                <input type="text" maxlength="1" class="box" disabled>
+                <input type="text" maxlength="1" class="box" disabled>
+            </div>
+            <div class="row">
+                <input type="text" maxlength="1" class="box" disabled>
+                <input type="text" maxlength="1" class="box" disabled>
+                <input type="text" maxlength="1" class="box" disabled>
+                <input type="text" maxlength="1" class="box" disabled>
+                <input type="text" maxlength="1" class="box" disabled>
+            </div>
+            <div class="row">
+                <input type="text" maxlength="1" class="box" disabled>
+                <input type="text" maxlength="1" class="box" disabled>
+                <input type="text" maxlength="1" class="box" disabled>
+                <input type="text" maxlength="1" class="box" disabled>
+                <input type="text" maxlength="1" class="box" disabled>
+            </div>
+            <div class="row">
+                <input type="text" maxlength="1" class="box" disabled>
+                <input type="text" maxlength="1" class="box" disabled>
+                <input type="text" maxlength="1" class="box" disabled>
+                <input type="text" maxlength="1" class="box" disabled>
+                <input type="text" maxlength="1" class="box" disabled>
+            </div>
+            <div class="row">
+                <input type="text" maxlength="1" class="box" disabled>
+                <input type="text" maxlength="1" class="box" disabled>
+                <input type="text" maxlength="1" class="box" disabled>
+                <input type="text" maxlength="1" class="box" disabled>
+                <input type="text" maxlength="1" class="box" disabled>
+            </div>
+            <div class="row">
+                <input type="text" maxlength="1" class="box" disabled>
+                <input type="text" maxlength="1" class="box" disabled>
+                <input type="text" maxlength="1" class="box" disabled>
+                <input type="text" maxlength="1" class="box" disabled>
+                <input type="text" maxlength="1" class="box" disabled>
+            </div>
+        </div>
+
+        <input type="text" id="guess" maxlength="5" placeholder="Enter your guess">
+        <button id="submit">Submit</button>
+        <div id="message"></div>
+        <button id="play-again" class="play-again" style="display: none;">Play Again</button>
+    </div>
+
+    <script>
+        // Word is chosen randomly from a predefined list
+        const wordBank = ["apple", "babel", "cabin", "deals", "eagle", "facet", "gamer", "hasty", "ideal", "jolly", "knack", "lemon", "mango", "noble", "ocean", "piano", "quilt", "racer", "salad", "table", "urban", "vivid", "waltz", "xenon", "yacht", "zesty"];
+        let wordToGuess = getRandomWordFromBank(wordBank); // Randomly select a word
+        let guesses = [];
+        let currentGuess = 0;
+
+        const guessInput = document.getElementById('guess');
+        const submitButton = document.getElementById('submit');
+        const message = document.getElementById('message');
+        const playAgainButton = document.getElementById('play-again');
+
+        submitButton.addEventListener('click', handleGuess);
+
+        // Add event listener for "Enter" key press
+        guessInput.addEventListener('keydown', function(event) {
+            if (event.key === 'Enter') {
+                handleGuess();
+            }
+        });
+
+        // Function to get a random word from the word bank
+        function getRandomWordFromBank(bank) {
+            const randomIndex = Math.floor(Math.random() * bank.length);
+            return bank[randomIndex];
+        }
+
+        // Function to handle the guess submission
+        function handleGuess() {
+            const guess = guessInput.value.toLowerCase();
+            if (guess.length !== 5) {
+                message.textContent = 'Please enter a 5-letter word.';
+                return;
+            }
+
+            if (currentGuess < 6) {
+                guesses[currentGuess] = guess;
+                updateGrid(currentGuess, guess);
+                currentGuess++;
+
+                if (guess === wordToGuess) {
+                    message.textContent = 'Congratulations! You guessed the word!';
+                    message.style.color = 'green';
+                    submitButton.disabled = true;
+                    playAgainButton.style.display = 'block'; // Show "Play Again" button
+                } else if (currentGuess === 6) {
+                    message.textContent = `Game Over! The word was "${wordToGuess}".`;
+                    message.style.color = 'red';
+                    submitButton.disabled = true;
+                    playAgainButton.style.display = 'block'; // Show "Play Again" button
+                } else {
+                    message.textContent = '';
+                }
+
+                guessInput.value = '';
+            }
+        }
+
+        // Function to update the grid with feedback
+        function updateGrid(row, guess) {
+            const rowElems = document.querySelectorAll('.row')[row].children;
+            for (let i = 0; i < 5; i++) {
+                const letter = guess[i];
+                rowElems[i].value = letter;
+                
+                // Remove any previous color
+                rowElems[i].style.backgroundColor = '';
+                rowElems[i].style.color = '';
+
+                // Apply feedback color
+                if (letter === wordToGuess[i]) {
+                    rowElems[i].style.backgroundColor = '#4CAF50'; // Green
+                    rowElems[i].style.color = 'white';
+                } else if (wordToGuess.includes(letter)) {
+                    rowElems[i].style.backgroundColor = '#FFEB3B'; // Yellow
+                    rowElems[i].style.color = 'black';
+                } else {
+                    rowElems[i].style.backgroundColor = '#BDBDBD'; // Gray
+                    rowElems[i].style.color = 'white';
+                }
+            }
+        }
+
+        // Reset game when "Play Again" button is clicked
+        playAgainButton.addEventListener('click', function() {
+            wordToGuess = getRandomWordFromBank(wordBank); // Select a new word
+            guesses = [];
+            currentGuess = 0;
+
+            // Reset the grid
+            const rowElems = document.querySelectorAll('.row');
+            rowElems.forEach(row => {
+                row.querySelectorAll('.box').forEach(box => {
+                    box.value = '';
+                    box.style.backgroundColor = '';
+                    box.style.color = '';
+                });
+            });
+
+            // Reset input field and message
+            guessInput.value = '';
+            message.textContent = '';
+            submitButton.disabled = false;
+            playAgainButton.style.display = 'none'; // Hide "Play Again" button
+        });
+    </script>
+</body>
+</html>
