@@ -6,19 +6,51 @@
     <title>Wordle Game</title>
     <style>
         /* General Body Styles */
+        :root {
+            --img-size: 120px; /* default header image size */
+        }
+
         body {
             font-family: 'Arial', sans-serif;
-            background-color: #f4f4f4;
+            background-color: #0b0f17;
             display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
+            flex-direction: column; /* stack header above game */
+            justify-content: flex-start;
+            align-items: center; /* center horizontally */
+            min-height: 100vh;
             margin: 0;
+            padding-top: 0;
+            box-sizing: border-box;
+        }
+
+        header {
+            text-align: center;
+            margin: 16px 0 8px 0; /* sits above the game and scrolls away */
+        }
+
+        header img {
+            width: var(--img-size);
+            height: var(--img-size);
+            border-radius: 50%;
+            box-shadow: 0 0 20px rgba(63, 240, 193, 0.8);
+            display: block;
+        }
+
+        header a {
+            display: inline-block;
+            outline: none;
+        }
+
+        header a:focus img,
+        header a:hover img {
+            transform: translateY(-4px);
+            transition: transform 0.15s ease-in-out;
+            box-shadow: 0 4px 24px rgba(63, 240, 193, 0.9);
         }
 
         .game-container {
             text-align: center;
-            background-color: #fff;
+            background-color: #2ecda4;
             border-radius: 10px;
             box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
             padding: 30px;
@@ -35,6 +67,8 @@
         .grid {
             display: grid;
             grid-template-rows: repeat(6, 1fr);
+            align-items: center;
+            justify-content: center;
             gap: 10px;
             margin-bottom: 20px;
         }
@@ -98,13 +132,15 @@
         }
 
         .play-again {
-            margin-top: 20px;
+            display: inline-block;
+            margin: 20px auto 0 auto; /* center horizontally */
             padding: 10px 20px;
             background-color: #2196F3;
             color: white;
             border: none;
             border-radius: 5px;
             cursor: pointer;
+            text-align: center;
         }
 
         .play-again:hover {
@@ -126,9 +162,25 @@
             background-color: #BDBDBD;
             color: white;
         }
+
+        /* Responsive adjustments to account for header size */
+        @media (max-width: 420px) {
+            :root {
+                --img-size: 96px;
+            }
+
+            .game-container {
+                width: 340px;
+            }
+        }
     </style>
 </head>
 <body>
+    <header>
+        <a href="index.html" aria-label="Go to homepage" title="Home">
+            <img src="img/mindgobblin.jpg" alt="Mind Goblin Icon">
+        </a>
+    </header>
     <div class="game-container">
         <h1>Wordle</h1>
         <div class="grid">
