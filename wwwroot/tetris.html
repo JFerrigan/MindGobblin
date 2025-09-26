@@ -1,176 +1,217 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Tetris</title>
     <style>
+      :root {
+        /* Text */
+        --ink: #e8edff;
+        --muted: #a8b0d9;
+        --accent: #6be0ff;
+        --panel-text: #cfd6ff;
+        --modal-heading: #cfe6ff;
+        --modal-body: #c6cff6;
+        --btn-text: #ffffff;
+
+        /* Backgrounds */
+        --bg: #0f1225;
+        --game-bg: #1c3077;
+        --mini-bg: #1c3077;
+        --menu-btn-bg: #444;
+        --menu-btn-bg-hover: #666;
+        --hold-btn-bg: #666;
+        --modal-overlay: rgba(0,0,0,0.75);
+
+        /* Gradients */
+        --btn-gradient: linear-gradient(180deg, #22a6ff, #1180ff);
+        --modal-gradient: linear-gradient(180deg, #14172d, #0f1430);
+
+        /* Borders */
+        --border-color: #2a3267;
+
+        /* Shadows */
+        --game-shadow: 0 15px 45px #0006;
+      }
+
+      * { box-sizing: border-box; }
+
       body {
         margin: 0;
-        font-family: sans-serif;
-        background: #111;
-        color: #eee;
-        display: flex;
-        justify-content: center;
-        align-items: flex-start;
-        height: 100vh;
-        overflow: hidden;
+        display: grid;
+        place-items: center;
+        min-height: 100vh;
+        background: var(--bg);
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+        color: var(--ink);
       }
 
       .container {
         display: flex;
         flex-direction: row;
-        max-width: 100%;
-        height: 100%;
+        gap: 0px;
         padding: 5px;
-        box-sizing: border-box;
+        align-items: flex-start;
       }
 
+      /* Left (game) */
       .left-panel {
         display: flex;
         flex-direction: column;
         align-items: center;
-        justify-content: flex-start;
-        padding: 5px;
-        flex-shrink: 0;
       }
 
       #score-container {
-        font-size: 20px;
-        margin-bottom: 5px;
+        font-size: 18px;
+        margin-bottom: 8px;
+        color: var(--muted);
       }
+      #score-label { font-weight: 700; margin-right: 6px; color: var(--muted); }
+      #score { font: 700 22px/1.2 ui-monospace, Consolas, Menlo, monospace; color: var(--accent); }
 
-      #score-label {
-        font-weight: bold;
-      }
+      .game-wrapper { width: 240px; max-width: 100%; }
 
-      #score {
-        font-weight: bold;
-      }
-
-      /* Game canvas scaling */
-      .game-wrapper {
+      canvas#game {
         width: 100%;
-        max-width: 240px; /* base width */
-      }
-
-      #game {
-        width: 100%; /* scales down with container */
         height: auto;
-        background: #222;
-        border: 2px solid #555;
+        background: var(--game-bg);
+        border-radius: 4px;
+        border: 1px solid var(--border-color);
+        box-shadow: var(--game-shadow);
         display: block;
       }
 
+      /* Right (panel) */
       .right-panel {
         display: flex;
         flex-direction: column;
-        align-items: flex-start; /* Align the content to the top */
-        padding: 5px;
-        width: 120px; /* narrower for small screens */
-        height: 100%;
-        box-sizing: border-box;
-        flex-shrink: 0;
+        align-items: center;
+        padding: 0;
+        width: 120px;
       }
 
       .panel-section {
-        margin-bottom: 8px;
-        text-align: center;
-        font-weight: bold;
-      }
-
-      .mini-wrapper {
         width: 100%;
-        max-width: 80px;
-        margin: 0 auto;
+        text-align: center;
+        margin-bottom: 12px;
+        font-weight: 700;
+        color: var(--panel-text);
       }
 
+      .mini-wrapper { width: 96px; margin: 0 auto; }
       .mini-wrapper canvas {
         width: 100%;
         height: auto;
-        background: #222;
-        border: 2px solid #555;
+        background: var(--mini-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
         display: block;
       }
 
       button {
+        all: unset;
+        display: inline-block;
         width: 100%;
-        padding: 6px;
-        margin-top: 4px;
-        font-size: 13px;
-        background: #444;
-        color: #fff;
+        padding: 0.55em 0.6em;
+        background: var(--btn-gradient);
+        color: var(--btn-text);
+        border-radius: 10px;
+        font-weight: 700;
+        text-align: center;
+        cursor: pointer;
+        margin-top: 6px;
+      }
+
+      /* Hold button */
+      button.menu-action { 
+        width: 60px;
+        height: 15px;
+        background: var(--hold-btn-bg); 
+      }
+
+      #version { font-size: 11px; color: var(--muted); margin-top: 8px; }
+
+      /* Menu button in right panel above "Next" */
+      .menu-btn {
+        width: 20px;
+        height: 15px;
+        font-size: 14px;
+        font-weight: bold;
+        background: var(--menu-btn-bg);
+        color: var(--btn-text);
         border: none;
         border-radius: 4px;
-      }
-
-      button:hover {
-        background: #666;
         cursor: pointer;
+        align-self: flex-end; /* push to right edge of panel */
+        display: flex;
+        justify-content: center;
+        align-items: flex-start;
+        padding: 2px;
+        margin: 0;
       }
+      .menu-btn:hover { background: var(--menu-btn-bg-hover); }
 
-      #version {
-        font-size: 10px;
-        color: #888;
-        text-align: center;
-        margin-top: 8px;
-      }
-
+      /* Modal (menu & controls) */
       .modal {
         position: fixed;
-        top: 0; left: 0; right: 0; bottom: 0;
-        background: rgba(0,0,0,0.8);
+        inset: 0;
+        background: var(--modal-overlay);
         display: none;
         justify-content: center;
         align-items: center;
-        z-index: 1000;
+        z-index: 1200;
       }
 
       .modal-content {
-        background: #222;
-        padding: 20px;
-        border-radius: 8px;
-        max-width: 400px;
-        width: 90%;
-        color: #fff;
-        text-align: left;
+        background: var(--modal-gradient);
+        border: 1px solid var(--border-color);
+        padding: 18px;
+        border-radius: 12px;
+        width: 92%;
+        max-width: 420px;
+        color: var(--ink);
+        text-align: center;
+      }
+
+      .modal-content > div {
+        display: flex;
+        flex-direction: column; /* stack children vertically */
+        gap: 8px;               /* optional spacing between buttons */
+        align-items: center;    /* horizontal centering */
       }
 
       .modal-content h2 {
-        margin-top: 0;
+        margin: 0 0 12px;
+        font-size: 18px;
+        color: var(--modal-heading);
       }
+      .modal-content p, 
+      .modal-content li { color: var(--modal-body); text-align: left; }
 
       .modal-content button {
-        background: #666;
-        margin-top: 15px;
+        width: 80px;
+        padding: 8px 12px;
+        margin: 8px 6px 0;
       }
 
-      /* Smallest screens (e.g. iPhone SE 2022 vertical) */
-      @media (max-width: 375px) {
-        .container {
-          padding: 2px;
-        }
-        .right-panel {
-          width: 100px;
+      /* small screen tweaks */
+      @media (max-width: 420px) {
+        .right-panel { width: 110px; }
+        .mini-wrapper { width: 80px; }
+        .game-wrapper { width: 220px; }
+        .menu-btn {
+          width: 18px;
+          height: 18px;
           font-size: 12px;
         }
-        #score-container {
-          font-size: 16px;
-        }
-        button {
-          font-size: 12px;
-          padding: 5px;
-        }
-      }
-
-      /* Align the "Next" box to the top of the grid */
-      .right-panel .panel-section:first-child {
-        margin-top: 10px;
       }
       
-      /* Add some margin space below "Lines" */
-      .right-panel .panel-section:nth-child(4) {
-        margin-bottom: 70px;
+      /* Left-align text for level and lines display */
+      .right-panel .panel-section:nth-of-type(3),
+      .right-panel .panel-section:nth-of-type(4) {
+        text-align: left;
+        padding-left: 10px;
       }
     </style>
   </head>
@@ -180,46 +221,52 @@
       <!-- Left side: Score + Game -->
       <div class="left-panel">
         <div id="score-container">
-          <span id="score-label">Score: </span><span id="score">0</span>
+          <span id="score-label">Score:</span><span id="score">0</span>
         </div>
         <div class="game-wrapper">
-          <canvas id="game" width="240" height="480"></canvas>
+          <canvas id="game" width="240" height="480" aria-label="Tetris board" role="img"></canvas>
         </div>
       </div>
 
       <!-- Right side panel -->
-      <div class="right-panel">
+      <div class="right-panel" aria-hidden="false">
+        <button id="menuBtn" class="menu-btn" aria-label="Menu">…</button>
+
         <div class="panel-section">
           <div>Next</div>
           <div class="mini-wrapper">
-            <canvas id="next" width="90" height="90"></canvas>
+            <canvas id="next" width="96" height="96"></canvas>
           </div>
         </div>
 
         <div class="panel-section">
           <div>Hold</div>
           <div class="mini-wrapper">
-            <canvas id="hold" width="90" height="90"></canvas>
+            <canvas id="hold" width="96" height="96"></canvas>
           </div>
-          <button id="holdBtn">Hold</button>
+          <button id="holdBtn" class="menu-action">Hold</button>
         </div>
 
         <div class="panel-section">LVL: <span id="level">1</span></div>
         <div class="panel-section">Lines: <span id="lines">0</span></div>
 
-        <div class="panel-section">
-          <button id="startBtn">Start</button>
-          <button id="pauseBtn">Pause</button>
-          <button id="controlsBtn">Controls</button>
-        </div>
-
-        <div id="version">v1.01</div>
+        <div id="version">v1.02</div>
       </div>
     </div>
 
-    <!-- Controls Modal -->
-    <div id="controlsModal" class="modal">
-      <div class="modal-content">
+    <!-- Menu Modal -->
+    <div id="menuModal" class="modal" role="dialog" aria-modal="true" aria-hidden="true">
+      <div class="modal-content" id="menuContent" style="display: none;">
+        <h2>Menu</h2>
+        <h2>-- Game Paused --</h2>
+        <div>
+          <button id="menuStartBtn">Start</button>
+          <button id="menuControlsBtn">Controls</button>
+          <button id="menuCloseBtn" class="menu-action">Close</button>
+        </div>
+      </div>
+
+      <div class="modal-content" id="controlsContent" style="display: none;">
         <h2>Controls</h2>
         <h3>Keyboard</h3>
         <ul>
@@ -228,214 +275,180 @@
           <li>Space: Hard drop</li>
           <li>Up Arrow: Rotate right</li>
           <li>Z: Rotate left</li>
-          <li>R: Start/Restart game</li>
-          <li>P: Pause</li>
+          <li>R: Start/Restart</li>
+          <li>P: Open menu</li>
           <li>C: Hold</li>
         </ul>
         <h3>Touch</h3>
         <ul>
           <li>Swipe Left/Right: Move piece</li>
-          <li>Swipe Down (slow): Soft drop</li>
-          <li>Swipe Down (quick): Hard drop</li>
-          <li>Tap: Rotate right</li>
+          <li>Swipe Down (slow + hold): Soft drop</li>
+          <li>Swipe Down (quick flick): Hard drop</li>
+          <li>Tap: Rotate</li>
         </ul>
-        <button id="closeControlsBtn">Close</button>
+        <div style="margin-top:12px;">
+          <button id="controlsBackBtn" class="menu-action">Back</button>
+        </div>
       </div>
     </div>
 
     <script>
-      (() => {
-        // --- Constants
-        const COLS = 10,
-          ROWS = 20,
-          SIZE = 24;
+      (function () {
+        // --- Constants / DOM
+        const COLS = 10, ROWS = 20, SIZE = 24;
         const canvas = document.getElementById("game");
         const ctx = canvas.getContext("2d");
         const nextCtx = document.getElementById("next").getContext("2d");
         const holdCtx = document.getElementById("hold").getContext("2d");
-        const comboInterval = 2000; // in milliseconds
+        const comboInterval = 2000; // in ms
 
-        // Tetromino definitions
+        // Tetromino definitions (same as before)
         const P = {
-          I: {
-            c: "#22e6ff",
-            r: [
-              [
-                [0, 0, 0, 0],
-                [1, 1, 1, 1],
-                [0, 0, 0, 0],
-                [0, 0, 0, 0],
-              ],
-              [
-                [0, 0, 1, 0],
-                [0, 0, 1, 0],
-                [0, 0, 1, 0],
-                [0, 0, 1, 0],
-              ],
+          I: { c: "#22e6ff", r: [
+            [
+              [0,0,0,0],
+              [1,1,1,1],
+              [0,0,0,0],
+              [0,0,0,0]
             ],
-          },
-          J: {
-            c: "#5cb6ff",
-            r: [
-              [
-                [1, 0, 0],
-                [1, 1, 1],
-                [0, 0, 0],
-              ],
-              [
-                [0, 1, 1],
-                [0, 1, 0],
-                [0, 1, 0],
-              ],
-              [
-                [0, 0, 0],
-                [1, 1, 1],
-                [0, 0, 1],
-              ],
-              [
-                [0, 1, 0],
-                [0, 1, 0],
-                [1, 1, 0],
-              ],
+            [
+              [0,0,1,0],
+              [0,0,1,0],
+              [0,0,1,0],
+              [0,0,1,0]
             ],
-          },
-          L: {
-            c: "#ffc35c",
-            r: [
-              [
-                [0, 0, 1],
-                [1, 1, 1],
-                [0, 0, 0],
-              ],
-              [
-                [0, 1, 0],
-                [0, 1, 0],
-                [0, 1, 1],
-              ],
-              [
-                [0, 0, 0],
-                [1, 1, 1],
-                [1, 0, 0],
-              ],
-              [
-                [1, 1, 0],
-                [0, 1, 0],
-                [0, 1, 0],
-              ],
+            [
+              [0,0,0,0],
+              [0,0,0,0],
+              [1,1,1,1],
+              [0,0,0,0]
             ],
-          },
-          O: {
-            c: "#ffe66b",
-            r: [
-              [
-                [1, 1],
-                [1, 1],
-              ],
+            [
+              [0,1,0,0],
+              [0,1,0,0],
+              [0,1,0,0],
+              [0,1,0,0]
+            ]
+          ]},
+          J: { c: "#5cb6ff", r: [
+            [
+              [1,0,0],
+              [1,1,1],
+              [0,0,0]
             ],
-          },
-          S: {
-            c: "#8aff6b",
-            r: [
-              [
-                [0, 1, 1],
-                [1, 1, 0],
-                [0, 0, 0],
-              ],
-              [
-                [0, 1, 0],
-                [0, 1, 1],
-                [0, 0, 1],
-              ],
+            [
+              [0,1,1],
+              [0,1,0],
+              [0,1,0]
             ],
-          },
-          T: {
-            c: "#b28bff",
-            r: [
-              [
-                [0, 1, 0],
-                [1, 1, 1],
-                [0, 0, 0],
-              ],
-              [
-                [0, 1, 0],
-                [0, 1, 1],
-                [0, 1, 0],
-              ],
-              [
-                [0, 0, 0],
-                [1, 1, 1],
-                [0, 1, 0],
-              ],
-              [
-                [0, 1, 0],
-                [1, 1, 0],
-                [0, 1, 0],
-              ],
+            [
+              [0,0,0],
+              [1,1,1],
+              [0,0,1]
             ],
-          },
-          Z: {
-            c: "#ff6b6b",
-            r: [
-              [
-                [1, 1, 0],
-                [0, 1, 1],
-                [0, 0, 0],
-              ],
-              [
-                [0, 0, 1],
-                [0, 1, 1],
-                [0, 1, 0],
-              ],
+            [
+              [0,1,0],
+              [0,1,0],
+              [1,1,0]
+            ]
+          ]},
+          L: { c: "#ffc35c", r: [
+            [
+              [0,0,1],
+              [1,1,1],
+              [0,0,0]
             ],
-          },
+            [
+              [0,1,0],
+              [0,1,0],
+              [0,1,1]
+            ],
+            [
+              [0,0,0],
+              [1,1,1],
+              [1,0,0]
+            ],
+            [
+              [1,1,0],
+              [0,1,0],
+              [0,1,0]
+            ]
+          ]},
+          O: { c: "#ffe66b", r: [
+            [
+              [1,1],
+              [1,1]
+            ]
+          ]},
+          S: { c: "#8aff6b", r: [
+            [
+              [0,1,1],
+              [1,1,0],
+              [0,0,0]
+            ],
+            [
+              [0,1,0],
+              [0,1,1],
+              [0,0,1]
+            ]
+          ]},
+          T: { c: "#b28bff", r: [
+            [
+              [0,1,0],
+              [1,1,1],
+              [0,0,0]
+            ],
+            [
+              [0,1,0],
+              [0,1,1],
+              [0,1,0]
+            ],
+            [
+              [0,0,0],
+              [1,1,1],
+              [0,1,0]
+            ],
+            [
+              [0,1,0],
+              [1,1,0],
+              [0,1,0]
+            ]
+          ]},
+          Z: { c: "#ff6b6b", r: [
+            [
+              [1,1,0],
+              [0,1,1],
+              [0,0,0]
+            ],
+            [
+              [0,0,1],
+              [0,1,1],
+              [0,1,0]
+            ]
+          ]}
         };
         const TYPES = Object.keys(P);
 
         // --- State
-        let grid,
-          current,
-          nextType = null,
-          bag = [],
-          held = null,
-          canHold = true;
-        let dropInterval = 900,
-          dropCounter = 0,
-          lastTime = 0;
-        let paused = true,
-          over = false,
-          started = false;
-        let score = 0,
-          lines = 0,
-          level = 1;
-        let lastComboTime = 0,
-          comboCount = 0;
-        // clearing animation state
-        let clearing = null; // {rows:[...], elapsed:ms, duration:ms}
+        let grid, current, nextType = null, bag = [], held = null, canHold = true;
+        let dropInterval = 900, dropCounter = 0, lastTime = 0;
+        let paused = true, over = false, started = false;
+        let score = 0, lines = 0, level = 1;
+        let lastComboTime = 0, comboCount = 0;
+        let clearing = null;
 
-        // --- UI refs
+        // UI refs
         const $score = document.getElementById("score");
         const $lines = document.getElementById("lines");
         const $level = document.getElementById("level");
+        const $menuStartBtn = document.getElementById("menuStartBtn");
 
-        // --- Helpers
-        const newGrid = () =>
-          Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+        // Helpers
+        const newGrid = () => Array.from({ length: ROWS }, () => Array(COLS).fill(0));
         const matFor = (p) => {
           const rs = P[p.type].r;
           return rs[p.rot % rs.length];
         };
-        /*
-        // Check to see if piece is above top of grid
-        function isAboveTop(p) {
-          const m = matFor(p);
-          for (let y = 0; y < m.length; y++) {
-            for (let x = 0; x < m[y].length; x++) {
-              if (m[y][x] && p.y + y < 1) return true;
-            }
-          }
-          return false;
-        }
-        */
         function randBag() {
           const a = TYPES.slice();
           for (let i = a.length - 1; i > 0; i--) {
@@ -450,19 +463,16 @@
         }
 
         function drawPreview(c2d, type) {
-          c2d.clearRect(0, 0, 96, 96);
-          const m = P[type].r[0],
-            col = P[type].c,
-            cell = 18;
-          const w = m[0].length * cell,
-            h = m.length * cell;
-          const ox = (96 - w) / 2,
-            oy = (96 - h) / 2;
+          // draw into 96x96 preview canvases
+          const size = 96;
+          c2d.clearRect(0, 0, size, size);
+          const m = P[type].r[0], col = P[type].c, cell = 18;
+          const w = m[0].length * cell, h = m.length * cell;
+          const ox = (size - w) / 2, oy = (size - h) / 2;
           c2d.fillStyle = col;
           for (let y = 0; y < m.length; y++)
             for (let x = 0; x < m[0].length; x++)
-              if (m[y][x])
-                c2d.fillRect(ox + x * cell, oy + y * cell, cell - 1, cell - 1);
+              if (m[y][x]) c2d.fillRect(ox + x * cell, oy + y * cell, cell - 1, cell - 1);
         }
 
         function collision(board, p) {
@@ -470,17 +480,9 @@
           for (let y = 0; y < m.length; y++) {
             for (let x = 0; x < m[y].length; x++) {
               if (!m[y][x]) continue;
-
-              const nx = p.x + x;
-              const ny = p.y + y;
-
-              // Side walls apply even above the top of the board
+              const nx = p.x + x, ny = p.y + y;
               if (nx < 0 || nx >= COLS) return true;
-
-              // Floor boundary
               if (ny >= ROWS) return true;
-
-              // Only check occupied cells once we're within the visible board
               if (ny >= 0 && board[ny][nx]) return true;
             }
           }
@@ -488,21 +490,18 @@
         }
 
         function merge(board, p) {
-          const m = matFor(p),
-            col = P[p.type].c;
+          const m = matFor(p), col = P[p.type].c;
           for (let y = 0; y < m.length; y++)
             for (let x = 0; x < m[y].length; x++)
               if (m[y][x]) {
-                const nx = p.x + x,
-                  ny = p.y + y;
+                const nx = p.x + x, ny = p.y + y;
                 if (ny >= 0) board[ny][nx] = col;
               }
         }
 
         function getFullLines() {
           const rows = [];
-          for (let y = ROWS - 1; y >= 0; y--)
-            if (grid[y].every((v) => v)) rows.push(y);
+          for (let y = ROWS - 1; y >= 0; y--) if (grid[y].every((v) => v)) rows.push(y);
           return rows;
         }
 
@@ -513,30 +512,22 @@
         function finalizeClear() {
           const rows = clearing.rows.slice().sort((a, b) => b - a);
           const n = rows.length;
-          for (const y of rows) {
-            grid.splice(y, 1);
-          }
+          for (const y of rows) grid.splice(y, 1);
           for (let i = 0; i < n; i++) grid.unshift(Array(COLS).fill(0));
           if (n) {
-            const pts = [0, 40, 100, 300, 1200][n] * level;
+            const pts = [0,40,100,300,1200][n] * level;
             const now = performance.now();
             const timeSinceCombo = now - lastComboTime;
             lastComboTime = now;
-            if (timeSinceCombo < comboInterval) {
-              comboCount++;
-            } else {
-              comboCount = 0;
-            }
-            const comboPtsBonus = Math.round(.25 * pts * comboCount);
-            score += pts;
-            score += comboPtsBonus;
+            if (timeSinceCombo < comboInterval) comboCount++; else comboCount = 0;
+            const comboPtsBonus = Math.round(pts * comboCount);
+            score += pts + comboPtsBonus;
             lines += n;
             level = 1 + ((lines / 10) | 0);
             dropInterval = Math.max(80, 900 - (level - 1) * 80);
             updateHUD();
           }
           clearing = null;
-          //spawn();
         }
 
         function spawn() {
@@ -545,18 +536,13 @@
           nextType = take();
           drawPreview(nextCtx, nextType);
           const mat = P[t].r[0];
-          current = {
-            type: t,
-            rot: 0,
-            x: ((COLS / 2) | 0) - ((mat[0].length / 2) | 0),
-            y: -1,
-          };
+          current = { type: t, rot: 0, x: ((COLS / 2) | 0) - ((mat[0].length / 2) | 0), y: -1 };
           if (collision(grid, current)) gameOver();
           canHold = true;
         }
 
         function softDrop() {
-          if (!paused || !over) {
+          if (!noGameInputPeriod()) {
             current.y++;
             if (collision(grid, current)) {
               current.y--;
@@ -564,27 +550,32 @@
             }
           }
         }
+
         function hardDrop() {
-          let fall = 0;
-          while (true) {
-            current.y++;
-            if (collision(grid, current)) {
-              current.y--;
-              break;
+          if (!noGameInputPeriod()) {
+            let fall = 0;
+            while (true) {
+              current.y++;
+              if (collision(grid, current)) {
+                current.y--;
+                break;
+              }
+              fall++;
             }
-            fall++;
+            score += fall * 2;
+            lockPiece();
           }
-          score += fall * 2;
-          lockPiece();
         }
+
         function move(dx) {
           current.x += dx;
           if (collision(grid, current)) current.x -= dx;
         }
+
         function rotate() {
           const prev = current.rot;
           current.rot = (current.rot + 1) % P[current.type].r.length;
-          const kicks = [0, 1, -1, 2, -2];
+          const kicks = [0,1,-1,2,-2];
           for (const k of kicks) {
             current.x += k;
             if (!collision(grid, current)) return;
@@ -592,27 +583,17 @@
           }
           current.rot = prev;
         }
+
         function rotateCounter() {
           const len = P[current.type].r.length;
-          const prevR = current.rot;
-          const prevX = current.x;
-          const prevY = current.y;
-
-          // rotate CCW: decrement rotation index with wrap
+          const prevR = current.rot, prevX = current.x, prevY = current.y;
           current.rot = (current.rot + len - 1) % len;
-
-          // same horizontal kicks you use in rotate()
-          const kicks = [0, 1, -1, 2, -2];
+          const kicks = [0,1,-1,2,-2];
           for (const k of kicks) {
-            current.x = prevX + k;
-            current.y = prevY;
-            if (!collision(grid, current)) return; // success
+            current.x = prevX + k; current.y = prevY;
+            if (!collision(grid, current)) return;
           }
-
-          // revert if all kicks fail
-          current.rot = prevR;
-          current.x = prevX;
-          current.y = prevY;
+          current.rot = prevR; current.x = prevX; current.y = prevY;
         }
 
         function hold() {
@@ -640,12 +621,24 @@
         }
 
         function drawCell(cx, cy, color, alpha = 1) {
-          const x = cx * SIZE,
-            y = cy * SIZE;
+          const x = cx * SIZE, y = cy * SIZE;
           ctx.globalAlpha = alpha;
           ctx.fillStyle = color;
           ctx.fillRect(x, y, SIZE - 1, SIZE - 1);
           ctx.globalAlpha = 1;
+        }
+
+        function overlay(text) {
+          ctx.save();
+          ctx.fillStyle = "#0009";
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.fillStyle = "#e8ecff";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.font = "700 18px ui-monospace,Consolas";
+          const a = text.split("\n");
+          a.forEach((l, i) => ctx.fillText(l, canvas.width / 2, canvas.height / 2 + i * 22));
+          ctx.restore();
         }
 
         function draw() {
@@ -658,15 +651,10 @@
             let gy = current.y;
             const ghost = { ...current };
             while (true) {
-              gy++;
-              ghost.y = gy;
-              if (collision(grid, ghost)) {
-                gy--;
-                break;
-              }
+              gy++; ghost.y = gy;
+              if (collision(grid, ghost)) { gy--; break; }
             }
-            const col = P[current.type].c,
-              m = matFor(current);
+            const col = P[current.type].c, m = matFor(current);
             for (let y = 0; y < m.length; y++)
               for (let x = 0; x < m[y].length; x++)
                 if (m[y][x]) drawCell(current.x + x, gy + y, col, 0.25);
@@ -675,34 +663,17 @@
                 if (m[y][x]) drawCell(current.x + x, current.y + y, col, 1);
           }
 
-          // Flash animation for clearing rows
           if (clearing) {
             const on = ((clearing.elapsed / 100) | 0) % 2 === 0;
             if (on) {
               ctx.fillStyle = "rgba(255,255,255,0.85)";
-              for (const y of clearing.rows) {
-                ctx.fillRect(0, y * SIZE, canvas.width, SIZE);
-              }
+              for (const y of clearing.rows) ctx.fillRect(0, y * SIZE, canvas.width, SIZE);
             }
           }
 
+          if (!started) { overlay("Press HERE to Start"); return; }
           if (paused && !over) overlay("Paused");
-          if (over) overlay("Game Over\n\nPress 'Start' to\nTry Again");
-        }
-
-        function overlay(text) {
-          ctx.save();
-          ctx.fillStyle = "#0009";
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-          ctx.fillStyle = "#e8ecff";
-          ctx.textAlign = "center";
-          ctx.textBaseline = "middle";
-          ctx.font = "700 18px ui-monospace,Consolas";
-          const a = text.split("\n");
-          a.forEach((l, i) =>
-            ctx.fillText(l, canvas.width / 2, canvas.height / 2 + i * 22)
-          );
-          ctx.restore();
+          if (over) overlay("Game Over\n\nPress HERE to\nTry Again");
         }
 
         function updateHUD() {
@@ -713,60 +684,36 @@
 
         function start() {
           grid = newGrid();
-          score = 0;
-          lines = 0;
-          level = 1;
-          lastComboTime = 0;
-          comboCount = 0;
+          score = 0; lines = 0; level = 1;
+          lastComboTime = 0; comboCount = 0;
           dropInterval = 900;
-          started = true;
-          over = false;
-          paused = false;
-          clearing = null;
-          bag = [];
-          nextType = null;
-          held = null;
-          canHold = true;
-          holdCtx.clearRect(0, 0, 96, 96);
-          nextCtx.clearRect(0, 0, 96, 96);
-          spawn();
-          updateHUD();
+          started = true; over = false; paused = false; clearing = null;
+          bag = []; nextType = null; held = null; canHold = true;
+          holdCtx.clearRect(0,0,96,96); nextCtx.clearRect(0,0,96,96);
+          if (started) $menuStartBtn.textContent = "Restart";
+          spawn(); updateHUD();
         }
+
         function pauseToggle() {
           if (!over && started) paused = !paused;
         }
-        function gameOver() {
-          over = true;
-          paused = true;
-        }
+
+        function gameOver() { over = true; paused = true; }
 
         function loop(t = 0) {
-          const dt = t - lastTime;
-          lastTime = t;
+          const dt = t - lastTime; lastTime = t;
 
-          // Horizonal auto-repeat
+          // Horizontal auto-repeat
           const now = t;
           if (hdir === -1 && keys.left.held) {
-            if (now >= keys.left.next) {
-              if (current) {
-                move(-1);
-              }
-              keys.left.next = now + ARR;
-            }
+            if (now >= keys.left.next) { if (current) move(-1); keys.left.next = now + ARR; }
           } else if (hdir === 1 && keys.right.held) {
-            if (now >= keys.right.next) {
-              if (current) {
-                move(1);
-              }
-              keys.right.next = now + ARR;
-            }
+            if (now >= keys.right.next) { if (current) move(1); keys.right.next = now + ARR; }
           }
 
           // Soft-drop auto-repeat
           if (keys.down.held && now >= keys.down.next) {
-            if (!clearing) {
-              softDrop();
-            }
+            if (!clearing) softDrop();
             keys.down.next = now + SDARR;
           }
 
@@ -775,240 +722,193 @@
             if (clearing.elapsed >= clearing.duration) finalizeClear();
           } else if (!paused && !over) {
             dropCounter += dt;
-            if (dropCounter > dropInterval) {
-              dropCounter = 0;
-              softDrop();
-            }
+            if (dropCounter > dropInterval) { dropCounter = 0; softDrop(); }
           }
           draw();
           requestAnimationFrame(loop);
         }
 
-        // --- Input Constants
-        // Horizontal auto-repeat config
-        const DAS = 100; // initial delay before repeat (ms) — set to 0 for no wait
-        const ARR = 60; // repeat interval (ms) — tweak to taste (e.g., 30–80ms)
+        function noGameInputPeriod() {
+          return (paused || clearing || over);
+        }
 
-        // Soft-drop auto-repeat
-        const SDR = 0; // initial delay for soft drop (ms)
-        const SDARR = 60; // repeat interval for soft drop (ms)
+        // Input constants
+        const DAS = 100, ARR = 60;
+        const SDR = 0, SDARR = 60;
 
-        // Key state for left/right
-        let hdir = 0; // -1 = left, 1 = right, 0 = none
-        const keys = {
-          left: { held: false, next: 0 },
-          right: { held: false, next: 0 },
-          down: { held: false, next: 0 },
-        };
+        // Key state
+        let hdir = 0;
+        const keys = { left: { held: false, next: 0 }, right: { held: false, next: 0 }, down: { held: false, next: 0 } };
 
         // --- Keyboard Inputs
-        // Input listener
-        window.addEventListener(
-          "keydown",
-          (e) => {
-            const k = e.key;
-            if (
-              ["ArrowLeft", "ArrowRight", "ArrowDown", "ArrowUp", " "].includes(
-                k
-              )
-            )
-              e.preventDefault();
-            if (k === "r" || k === "R") {
-              start();
-              return;
-            }
-            if (k === "p" || k === "P") {
-              pauseToggle();
-              return;
-            }
-            if (paused || clearing) return;
-            switch (k) {
-              case "ArrowLeft":
-                // start holding left (ignore OS key repeat)
-                if (!keys.left.held) {
-                  keys.left.held = true;
-                  hdir = -1;
-                  move(-1); // immediate move (no initial wait)
-                  keys.left.next = performance.now() + Math.max(DAS, ARR); // next repeat tick
-                }
-                break;
-              case "ArrowRight":
-                // start holding right (ignore OS key repeat)
-                if (!keys.right.held) {
-                  keys.right.held = true;
-                  hdir = 1;
-                  move(1); // immediate move (no initial wait)
-                  keys.right.next = performance.now() + Math.max(DAS, ARR); // next repeat tick
-                }
-                break;
-              case "ArrowDown":
-                if (!keys.down.held) {
-                  keys.down.held = true;
-                  softDrop(); // immediate soft drop (no initial wait)
-                  keys.down.next = performance.now() + Math.max(SDR, SDARR); // schedule next repeat
-                }
-                break;
-              case "ArrowUp":
-                rotate();
-                break;
-              case "z":
-              case "Z":
-                rotateCounter();
-                break;
-              case " ":
-                hardDrop();
-                break;
-              case "c":
-              case "C":
-                hold();
-                break;
-            }
-          },
-          { passive: false }
-        );
+        window.addEventListener("keydown", (e) => {
+          const k = e.key;
+          if (["ArrowLeft","ArrowRight","ArrowDown","ArrowUp"," "].includes(k)) e.preventDefault();
+          if (k === "r" || k === "R") {
+            if (preMenuPaused !== null) return;
+            start();
+            return;
+          }
+          // NOTE: 'P' no longer pauses here; menu toggle handled separately
+          if (noGameInputPeriod()) return;
+
+          switch (k) {
+            case "ArrowLeft":
+              if (!keys.left.held) { keys.left.held = true; hdir = -1; move(-1); keys.left.next = performance.now() + Math.max(DAS, ARR); }
+              break;
+            case "ArrowRight":
+              if (!keys.right.held) { keys.right.held = true; hdir = 1; move(1); keys.right.next = performance.now() + Math.max(DAS, ARR); }
+              break;
+            case "ArrowDown":
+              if (!keys.down.held) { keys.down.held = true; softDrop(); keys.down.next = performance.now() + Math.max(SDR, SDARR); }
+              break;
+            case "ArrowUp":
+              rotate(); break;
+            case "z": case "Z":
+              rotateCounter(); break;
+            case " ":
+              hardDrop(); break;
+            case "c": case "C":
+              hold(); break;
+          }
+        }, { passive: false });
 
         window.addEventListener("keyup", (e) => {
-          if (e.key === "ArrowLeft") {
-            keys.left.held = false;
-            if (hdir === -1) hdir = keys.right.held ? 1 : 0;
-          } else if (e.key === "ArrowRight") {
-            keys.right.held = false;
-            if (hdir === 1) hdir = keys.left.held ? -1 : 0;
-          } else if (e.key === "ArrowDown") {
-            keys.down.held = false;
-          }
+          if (e.key === "ArrowLeft") { keys.left.held = false; if (hdir === -1) hdir = keys.right.held ? 1 : 0; }
+          else if (e.key === "ArrowRight") { keys.right.held = false; if (hdir === 1) hdir = keys.left.held ? -1 : 0; }
+          else if (e.key === "ArrowDown") { keys.down.held = false; }
         });
 
+        // Toggle menu with 'P' key (separate listener so it always works)
+        window.addEventListener("keydown", (e) => {
+          if (e.key === "p" || e.key === "P") {
+            e.preventDefault();
+            toggleMenu();
+          }
+        }, { passive: false });
 
-        // --- Touch inputs
+        // --- Touch inputs (refined)
         const gameCanvas = document.getElementById("game");
-
-        let touchStartX = 0;
-        let touchStartY = 0;
-        let touchStartTime = 0;
-        let lastMoveX = 0;
-
+        let touchStartX = 0, touchStartY = 0, touchStartTime = 0, lastMoveX = 0;
         let softDropInterval = null;
-
-        const swipeThreshold = 30;   // px min for swipe (down)
-        const fastSwipeTime = 200;   // ms threshold for quick swipe (hard drop)
-        const tapThreshold = 10;     // px max for tap
-        const tapTime = 200;         // ms max for tap
-        const moveStep = 20;         // horizontal step distance in px
-        const softDropRate = 50;     // ms between softDrop() calls while held
+        const swipeThreshold = 30, fastSwipeTime = 200, tapThreshold = 10, tapTime = 200, moveStep = 20, softDropRate = 50;
 
         gameCanvas.addEventListener("touchstart", (e) => {
           if (e.touches.length !== 1) return;
           const rect = gameCanvas.getBoundingClientRect();
-          const x = e.touches[0].clientX;
-          const y = e.touches[0].clientY;
-
-          if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom)
-            return;
-
+          const x = e.touches[0].clientX, y = e.touches[0].clientY;
+          if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) return;
           e.preventDefault();
-
-          touchStartX = x;
-          touchStartY = y;
-          touchStartTime = performance.now();
-          lastMoveX = x;
+          touchStartX = x; touchStartY = y; touchStartTime = performance.now(); lastMoveX = x;
         }, { passive: false });
 
         gameCanvas.addEventListener("touchmove", (e) => {
           if (e.touches.length !== 1) return;
           const rect = gameCanvas.getBoundingClientRect();
-          const x = e.touches[0].clientX;
-          const y = e.touches[0].clientY;
-
-          if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom)
-            return;
-
+          const x = e.touches[0].clientX, y = e.touches[0].clientY;
+          if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) return;
           e.preventDefault();
 
           const dx = x - lastMoveX;
           const dy = y - touchStartY;
           const dt = performance.now() - touchStartTime;
 
-          // Horizontal drag = piece movement
-          if (Math.abs(dx) >= moveStep && Math.abs(dx) > Math.abs(dy)) {
-            if (dx > 0) {
-              move(1);
-            } else {
-              move(-1);
-            }
+          // --- Horizontal drag movement (independent of vertical) ---
+          if (Math.abs(dx) >= moveStep) {
+            if (dx > 0) move(1); else move(-1);
             lastMoveX = x;
           }
 
-          // Vertical drag (slow downward hold) = soft drop
+          // --- Slow downward hold => soft drop ---
           if (dy > swipeThreshold && dt >= fastSwipeTime && !softDropInterval) {
-            softDrop(); // immediate drop on detection
-            softDropInterval = setInterval(() => softDrop(), softDropRate);
+            softDrop(); // immediate
+            softDropInterval = setInterval(() => {
+              if (!paused && !clearing && current) softDrop();
+            }, softDropRate);
           }
         }, { passive: false });
 
         gameCanvas.addEventListener("touchend", (e) => {
-          //const rect = gameCanvas.getBoundingClientRect();
-          const x = e.changedTouches[0].clientX;
-          const y = e.changedTouches[0].clientY;
-
-          /* // Don't want to ignore inputs outside game grid for touchEnd
-          if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom)
-            return;
-          */
-
+          const x = e.changedTouches[0].clientX, y = e.changedTouches[0].clientY;
           e.preventDefault();
+          clearInterval(softDropInterval); softDropInterval = null;
 
-          clearInterval(softDropInterval);
-          softDropInterval = null;
-
-          const dx = x - touchStartX;
-          const dy = y - touchStartY;
-          const dt = performance.now() - touchStartTime;
-
-          const absDx = Math.abs(dx);
-          const absDy = Math.abs(dy);
+          const dx = x - touchStartX, dy = y - touchStartY, dt = performance.now() - touchStartTime;
+          const absDx = Math.abs(dx), absDy = Math.abs(dy);
 
           if (absDx < tapThreshold && absDy < tapThreshold && dt < tapTime) {
-            // TAP = rotate clockwise
+            if (over || !started) { start(); return; }
             rotate();
           } else if (dy > swipeThreshold && dt < fastSwipeTime) {
-            // Quick downward flick = hard drop
             hardDrop();
           }
         }, { passive: false });
 
-        // Setup buttons
-        document.getElementById("startBtn").onclick = start;
-        document.getElementById("pauseBtn").onclick = pauseToggle;
-        // Hook up Hold button
-        document.getElementById("holdBtn").addEventListener("click", () => {
-          hold();
+        // --- Menu (new)
+        const menuBtn = document.getElementById("menuBtn");
+        const menuModal = document.getElementById("menuModal");
+        const menuContent = document.getElementById("menuContent");
+        const controlsContent = document.getElementById("controlsContent");
+        const menuControlsBtn = document.getElementById("menuControlsBtn");
+        const menuCloseBtn = document.getElementById("menuCloseBtn");
+        const controlsBackBtn = document.getElementById("controlsBackBtn");
+        const gameBoard = document.getElementById("game");
+
+        let preMenuPaused = null;
+
+        function openMenu() {
+          preMenuPaused = paused;
+          paused = true;
+          menuModal.style.display = "flex";
+          menuModal.setAttribute("aria-hidden", "false");
+          menuContent.style.display = "block";
+          controlsContent.style.display = "none";
+        }
+
+        function closeMenu() {
+          menuModal.style.display = "none";
+          menuModal.setAttribute("aria-hidden", "true");
+          // restore only if preMenuPaused was set
+          if (preMenuPaused !== null) { paused = preMenuPaused; preMenuPaused = null; }
+        }
+
+        function toggleMenu() {
+          if (menuModal.style.display === "flex") closeMenu(); else openMenu();
+        }
+
+        // Menu actions
+        menuBtn.addEventListener("click", openMenu);
+        menuModal.addEventListener("click", (e) => { if (e.target === menuModal) closeMenu(); });
+
+        menuStartBtn.addEventListener("click", () => {
+          // starting a new game: just start and hide menu (do not restore paused)
+          start();
+          menuModal.style.display = "none";
+          menuModal.setAttribute("aria-hidden", "true");
+          preMenuPaused = null;
         });
 
-        // Modal logic
-        const controlsBtn = document.getElementById("controlsBtn");
-        const controlsModal = document.getElementById("controlsModal");
-        const closeControlsBtn = document.getElementById("closeControlsBtn");
-
-        controlsBtn.addEventListener("click", () => {
-          pauseToggle();
-          controlsModal.style.display = "flex";
+        menuControlsBtn.addEventListener("click", () => {
+          menuContent.style.display = "none";
+          controlsContent.style.display = "block";
         });
 
-        closeControlsBtn.addEventListener("click", () => {
-          pauseToggle();
-          controlsModal.style.display = "none";
+        menuCloseBtn.addEventListener("click", () => closeMenu());
+
+        controlsBackBtn.addEventListener("click", () => {
+          controlsContent.style.display = "none";
+          menuContent.style.display = "block";
         });
 
-        // Close modal if clicking outside content
-        controlsModal.addEventListener("click", (e) => {
-          if (e.target === controlsModal) {
-            pauseToggle();
-            controlsModal.style.display = "none";
-          }
+        // Hook up hold button
+        document.getElementById("holdBtn").addEventListener("click", () => hold());
+
+        // For starting game by clicking on game grid
+        gameBoard.addEventListener("click", () => {
+          if (over || !started) start();
         });
 
-        // Boot
+        // --- Boot
         grid = newGrid();
         requestAnimationFrame(loop);
       })();
