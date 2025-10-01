@@ -3,9 +3,10 @@ using System.Security.Cryptography;
 using System.Text.Json.Serialization;
 using System.Text.Json;
 using System.Text;
-using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.WebUtilities; // for QueryHelpers
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -89,6 +90,27 @@ var LOCAL_GENRE_SEEDS = new[]
     "ska","sleep","soul","soundtracks","spanish","study","summer","swedish","synth-pop","tango","techno",
     "trance","trip-hop","turkish","work-out","world-music"
 };
+
+// ---- Configure EntityFramework and SQLite ----
+builder.Services.AddDbContext<TetrisScoreboardContext>(options =>
+{
+    var connectionString = "Data Source=/data/jakeserver.db;Cache=Shared;";
+    var connection = new SqliteConnection(connectionString);
+
+    // Set busy timeout (seconds)
+    connection.DefaultTimeout = 5; // only timeout after 5 seconds of waiting
+
+    // Enable WAL mode for better concurrency
+    connection.Open();
+    using (var command = connection.CreateCommand())
+    {
+        command.CommandText = "PRAGMA journal_mode=WAL;";
+        command.ExecuteNonQuery();
+    }
+
+    options.UseSqlite(connection);
+});
+
 
 var app = builder.Build();
 
@@ -814,6 +836,76 @@ app.MapPost("/api/place/set", async (HttpContext ctx) =>
     return Results.Ok(new { ok = true, since = PlaceBoard.LastTs });
 });
 
+// ---------- Tong's Tetris API endpoints ----------
+// Get scores (top 10 w/ with player highlight)
+app.MapGet("/api/tetrisscoreshl", async (TetrisScoreboardContext db, int? playerId) =>
+{
+    try
+    {
+        // Get all scores in descending order
+        var allScores = await db.TetrisScores
+            .OrderByDescending(s => s.Points)
+            .ToListAsync();
+
+        // Assign placements
+        var ranked = allScores
+            .Select((s, i) => new { Placement = i + 1, s.Id, s.Player, s.Points })
+            .ToList();
+
+        // Take top 10
+        var top10 = ranked.Take(10).ToList();
+
+        // Get the requesting player’s row
+        var playerRow = playerId.HasValue ? ranked.FirstOrDefault(r => r.Id == playerId.Value) : null;
+
+        return Results.Json(new
+        {
+            Top = top10,
+            Player = playerRow
+        });
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine("Database read error: " + ex.Message);
+        return Results.Problem("Error reading from database."); // Return an error JSON
+    }
+});
+
+// Get scores (top 10)
+app.MapGet("/api/tetrisscores", async (TetrisScoreboardContext db) =>
+{
+    try
+    {
+        var scores = await db.TetrisScores
+            .OrderByDescending(s => s.Points)
+            .Take(10)
+            .ToListAsync();
+
+        return Results.Json(scores); // return JSON format
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine("Database read error: " + ex.Message);
+        return Results.Problem("Error reading from database."); // Return an error JSON
+    }
+});
+
+// Save score
+app.MapPost("/api/tetrisscores", async (TetrisScoreboardContext db, TetrisScore score) =>
+{
+    try
+    {
+        db.TetrisScores.Add(score);
+        await db.SaveChangesAsync();
+        return Results.Created($"/api/tetrisscores/{score.Id}", score);
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine("Database write error: " + ex.Message);
+        return Results.Problem("Error writing to database."); // Return an error JSON
+    }
+});
+
 
 
 PlaceBoard.Load();
@@ -836,7 +928,6 @@ static bool CheckCooldown(HttpContext ctx, int cooldownSeconds, out int remainSe
 }
 
 
-// ---------- r/place board (globals) ----------
 // ---------- r/place board (globals) ----------
 record PlaceUpdate(int X, int Y, byte ColorIndex, long Ts);
 
@@ -924,6 +1015,20 @@ static class PlaceBoard
         Recent.Enqueue(new PlaceUpdate(x, y, color, ts));
         while (Recent.Count > 5000) Recent.Dequeue();
     }
+}
+
+// ---------- Tong's Tetris Scoreboard DB Model ----------
+public class TetrisScoreboardContext : DbContext
+{
+    public TetrisScoreboardContext(DbContextOptions<TetrisScoreboardContext> options) : base(options) { }
+    public DbSet<TetrisScore> TetrisScores { get; set; }
+}
+public class TetrisScore
+{
+    public int Id { get; set; }
+    public string Player { get; set; } = "";
+    public int Points { get; set; }
+    public DateTime PlayedAt { get; set; } = DateTime.UtcNow;
 }
 
 // ---------- DTOs ----------

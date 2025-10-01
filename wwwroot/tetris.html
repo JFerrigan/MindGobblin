@@ -213,6 +213,41 @@
         text-align: left;
         padding-left: 10px;
       }
+
+      #playerNameField {
+        text-align: center;
+      }
+
+      #scoreTable {
+        width: 70%;
+        border-collapse: collapse;
+        margin: 8px auto;
+        font-size: 14px;
+      }
+
+      #scoreTable th,
+      #scoreTable td {
+        padding: 6px 10px;
+        text-align: left;
+        border-bottom: 1px solid var(--muted);
+      }
+
+      #scoreTable th {
+        color: var(--accent);
+        font-weight: 700;
+        text-align: center;
+      }
+
+      #scoreTable td:last-child {
+        text-align: right; /* Align scores to the right */
+      }
+
+      #scoreTable tr.highlight {
+        font-weight: bold;
+        color: orange;
+      }
+
+
     </style>
   </head>
 
@@ -250,7 +285,7 @@
         <div class="panel-section">LVL: <span id="level">1</span></div>
         <div class="panel-section">Lines: <span id="lines">0</span></div>
 
-        <div id="version">v1.02</div>
+        <div id="version">v1.03</div>
       </div>
     </div>
 
@@ -261,10 +296,30 @@
         <h2>-- Game Paused --</h2>
         <div>
           <button id="menuStartBtn">Start</button>
+          <button id="menuScoreboardBtn">Scoreboard</button>
+          <button id="menuChangeNameBtn">Change Name</button>
           <button id="menuControlsBtn">Controls</button>
           <button id="menuCloseBtn" class="menu-action">Close</button>
         </div>
       </div>
+
+      <div class="modal-content" id="scoreboard" style="display: none;">
+        <h2>Scoreboard</h2>
+        <table id="scoreTable">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Player</th>
+              <th>Score</th>
+            </tr>
+          </thead>
+          <tbody id="scoreRows"><!-- Score rows will go here --></tbody>
+        </table>
+        <div style="margin-top:12px;">
+          <button id="scoreboardBackBtn" class="menu-action">Back</button>
+        </div>
+      </div>
+
 
       <div class="modal-content" id="controlsContent" style="display: none;">
         <h2>Controls</h2>
@@ -288,6 +343,21 @@
         </ul>
         <div style="margin-top:12px;">
           <button id="controlsBackBtn" class="menu-action">Back</button>
+        </div>
+      </div>
+
+      <!-- Player Name Input -->
+      <div class="modal-content" id="playerNameInput" style="display: none;">
+        <h2>Player Name:</h2>
+        <input 
+          type="text" 
+          id="playerNameField" 
+          maxlength="20" 
+          value="Guest" 
+          style="width: 80%; padding: 6px; font-size: 16px; border-radius: 6px; border: 1px solid #2a3267; background: var(--panel); color: var(--ink);"
+        />
+        <div style="margin-top: 12px;">
+          <button id="playerNameConfirmBtn">OK</button>
         </div>
       </div>
     </div>
@@ -436,12 +506,76 @@
         let score = 0, lines = 0, level = 1;
         let lastComboTime = 0, comboCount = 0;
         let clearing = null;
+        let playerName = "Guest";
+        let initialGameLoad = true;
+        let preMenuPaused = null;
+        let isTextEntry = false;
+        let isGameOverScoreboard = false;
+        let playerPlacement = null;
 
         // UI refs
         const $score = document.getElementById("score");
         const $lines = document.getElementById("lines");
         const $level = document.getElementById("level");
         const $menuStartBtn = document.getElementById("menuStartBtn");
+        const scoreboard = document.getElementById("scoreboard");
+        const scoreRows = document.getElementById("scoreRows");
+        const playerNameInput = document.getElementById("playerNameInput");
+        const playerNameField = document.getElementById("playerNameField");
+        const playerNameConfirmBtn = document.getElementById("playerNameConfirmBtn");
+
+        // Scoreboard
+        // Submit score
+        async function submitScore(player, points) {
+          const res = await fetch('/api/tetrisscores', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ player, points })
+          });
+
+          const saved = await res.json(); // { Id, Player, Points }
+          playerPlacement = saved.id;
+        }
+        // Fetch top10 scores
+        async function loadScores() {
+          const res = await fetch('/api/tetrisscores');
+          const scores = await res.json();
+
+          scoreRows.innerHTML = scores
+            .map((s, i) => `<tr>
+                              <td>${i + 1}</td>
+                              <td>${s.player}</td>
+                              <td>${s.points}</td>
+                            </tr>`)
+            .join("");
+        }
+        // Fetch top10 scores with player highlight
+        async function loadScoreshl(playerId) {
+          const res = await fetch(`/api/tetrisscoreshl?playerId=${playerId}`);
+          const data = await res.json();
+
+          let rows = "";
+
+          data.top.forEach(s => {
+            const highlight = (s.id === playerId) ? "highlight" : "";
+            rows += `<tr class="${highlight}">
+                      <td>${s.placement}</td>
+                      <td>${s.player}</td>
+                      <td>${s.points}</td>
+                    </tr>`;
+          });
+
+          if (data.player && data.player.placement > 10) {
+            rows += `<tr><td></td><td>...</td><td></td></tr>`;
+            rows += `<tr class="highlight">
+                      <td>${data.player.placement}</td>
+                      <td>${data.player.player}</td>
+                      <td>${data.player.points}</td>
+                    </tr>`;
+          }
+
+          scoreRows.innerHTML = rows;
+        }
 
         // Helpers
         const newGrid = () => Array.from({ length: ROWS }, () => Array(COLS).fill(0));
@@ -698,7 +832,26 @@
           if (!over && started) paused = !paused;
         }
 
-        function gameOver() { over = true; paused = true; }
+        function gameOver() {
+          updateHUD();
+          over = true; 
+          paused = true;
+          submitScore(playerName, score)
+          setTimeout(gameOverScoreboard, 500); // small delay to give score submission time to run before fetching scoreboard
+        }
+
+        function gameOverScoreboard() {
+          loadScoreshl(playerPlacement);
+          isGameOverScoreboard = true;
+          preMenuPaused = paused;
+          paused = true;
+          menuModal.style.display = "flex";
+          menuModal.setAttribute("aria-hidden", "false");
+          scoreboard.style.display = "block";
+          playerNameInput.style.display = "none";
+          menuContent.style.display = "none";
+          controlsContent.style.display = "none";
+        }
 
         function loop(t = 0) {
           const dt = t - lastTime; lastTime = t;
@@ -732,6 +885,17 @@
           return (paused || clearing || over);
         }
 
+        function sanitizePlayerName(name) {
+          // Trim spaces
+          let trimmed = name.trim();
+
+          // If empty, default to Guest
+          if (!trimmed) return "Guest";
+
+          // Remove potentially problematic characters (quotes, semicolons, etc.)
+          return trimmed.replace(/['";]/g, "") || "Guest";
+        }
+
         // Input constants
         const DAS = 100, ARR = 60;
         const SDR = 0, SDARR = 60;
@@ -742,6 +906,7 @@
 
         // --- Keyboard Inputs
         window.addEventListener("keydown", (e) => {
+          if (isTextEntry) return;
           const k = e.key;
           if (["ArrowLeft","ArrowRight","ArrowDown","ArrowUp"," "].includes(k)) e.preventDefault();
           if (k === "r" || k === "R") {
@@ -774,6 +939,7 @@
         }, { passive: false });
 
         window.addEventListener("keyup", (e) => {
+          if (isTextEntry) return;
           if (e.key === "ArrowLeft") { keys.left.held = false; if (hdir === -1) hdir = keys.right.held ? 1 : 0; }
           else if (e.key === "ArrowRight") { keys.right.held = false; if (hdir === 1) hdir = keys.left.held ? -1 : 0; }
           else if (e.key === "ArrowDown") { keys.down.held = false; }
@@ -781,6 +947,7 @@
 
         // Toggle menu with 'P' key (separate listener so it always works)
         window.addEventListener("keydown", (e) => {
+          if (isTextEntry) return;
           if (e.key === "p" || e.key === "P") {
             e.preventDefault();
             toggleMenu();
@@ -844,17 +1011,19 @@
           }
         }, { passive: false });
 
-        // --- Menu (new)
+        // --- Menu
         const menuBtn = document.getElementById("menuBtn");
         const menuModal = document.getElementById("menuModal");
         const menuContent = document.getElementById("menuContent");
+        const menuScoreboardBtn = document.getElementById("menuScoreboardBtn");
+        const scoreboardBackBtn = document.getElementById("scoreboardBackBtn");
         const controlsContent = document.getElementById("controlsContent");
         const menuControlsBtn = document.getElementById("menuControlsBtn");
         const menuCloseBtn = document.getElementById("menuCloseBtn");
         const controlsBackBtn = document.getElementById("controlsBackBtn");
         const gameBoard = document.getElementById("game");
+        const menuChangeNameBtn = document.getElementById("menuChangeNameBtn");
 
-        let preMenuPaused = null;
 
         function openMenu() {
           preMenuPaused = paused;
@@ -863,9 +1032,12 @@
           menuModal.setAttribute("aria-hidden", "false");
           menuContent.style.display = "block";
           controlsContent.style.display = "none";
+          scoreboard.style.display = "none";
+          playerNameInput.style.display = "none";
         }
 
         function closeMenu() {
+          isTextEntry = false;
           menuModal.style.display = "none";
           menuModal.setAttribute("aria-hidden", "true");
           // restore only if preMenuPaused was set
@@ -888,6 +1060,22 @@
           preMenuPaused = null;
         });
 
+        menuScoreboardBtn.addEventListener("click", () => {
+          loadScores();
+          menuContent.style.display = "none";
+          scoreboard.style.display = "block";
+        });
+
+        scoreboardBackBtn.addEventListener("click", () => {
+          scoreboard.style.display = "none";
+          if (isGameOverScoreboard) {
+            closeMenu()
+            isGameOverScoreboard = false;
+          } else {
+            menuContent.style.display = "block";
+          }
+        });
+
         menuControlsBtn.addEventListener("click", () => {
           menuContent.style.display = "none";
           controlsContent.style.display = "block";
@@ -900,12 +1088,40 @@
           menuContent.style.display = "block";
         });
 
+        menuChangeNameBtn.addEventListener("click", () => {
+          isTextEntry = true;
+          playerNameInput.style.display = "block";
+          menuContent.style.display = "none";
+        });
+
+        playerNameConfirmBtn.addEventListener("click", () => {
+          isTextEntry = false;
+          playerName = sanitizePlayerName(playerNameField.value);
+          playerNameInput.style.display = "none";
+          if (initialGameLoad) {
+            closeMenu()
+            initialGameLoad = false;
+          } else {
+            menuContent.style.display = "block";
+          }
+        });
+
         // Hook up hold button
         document.getElementById("holdBtn").addEventListener("click", () => hold());
 
         // For starting game by clicking on game grid
         gameBoard.addEventListener("click", () => {
           if (over || !started) start();
+        });
+
+        window.addEventListener("load", () => {
+          isTextEntry = true;
+          menuModal.style.display = "flex";
+          menuModal.setAttribute("aria-hidden", "false");
+          playerNameInput.style.display = "block";
+          menuContent.style.display = "none";
+          controlsContent.style.display = "none";
+          scoreboard.style.display = "none";
         });
 
         // --- Boot
