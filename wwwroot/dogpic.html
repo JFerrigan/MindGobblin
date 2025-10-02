@@ -6,15 +6,37 @@
     <title>Random Dog Picture 🐶</title>
     <style>
         :root {
-            --img-size: 120px; /* default header image size */
+            --img-size: 120px;
+            /* default header image size */
+            --bg: #0b0f17;
+            --fg: #eaeaea;
+            --accent: #3ff0c1;
+            --accent-dark: #2ecda4;
+            --card-bg: #151c27;
         }
-        
+
+        :root {
+            --bg: #0b0f17;
+            --fg: #eaeaea;
+            --accent: #3ff0c1;
+            --accent-dark: #2ecda4;
+            --card-bg: #151c27;
+        }
+
         body {
-            font-family: system-ui, sans-serif;
-            text-align: center;
-            background: #f3f3f3;
+            margin: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: var(--bg);
+            color: var(--fg);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
             padding: 2rem;
         }
+
+        body {}
 
         header {
             text-align: center;
