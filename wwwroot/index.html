@@ -1,5 +1,6 @@
 <!doctype html>
 <html lang="en">
+
 <head>
   <meta charset="utf-8">
   <title>MindGobblin</title>
@@ -13,7 +14,9 @@
       --card-bg: #151c27;
     }
 
-    * { box-sizing: border-box; }
+    * {
+      box-sizing: border-box;
+    }
 
     body {
       margin: 0;
@@ -75,33 +78,167 @@
       color: #08111a;
       border-color: var(--accent);
       transform: translateY(-2px);
-      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    }
+
+    /* section headers inside the nav grid */
+    nav .nav-section {
+      grid-column: 1 / -1;
+      /* span full width of the grid */
+      margin: 1.2rem 0 .35rem;
+      padding-top: .5rem;
+      border-top: 1px solid rgba(255, 255, 255, .08);
+      color: var(--accent);
+      font-weight: 700;
+      font-size: .95rem;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      opacity: .9;
+    }
+
+
+    /* --- Responsive alternating PNG pumpkins/cats down the sides --- */
+    header,
+    nav {
+      position: relative;
+      z-index: 1;
+    }
+
+    /* keep content above the art */
+
+    :root {
+      /* Icon size scales with the smaller viewport side */
+      --spooky-size: clamp(140px, 5vmin, 360px);
+      /* Vertical spacing scales with size */
+      --spooky-gap: calc(var(--spooky-size) * 2.6);
+      /* Edge padding scales too */
+      --spooky-pad: clamp(6px, 2vmin, 18px);
+    }
+
+    .spooky-trail {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .spooky-item {
+      position: fixed;
+      width: var(--spooky-size);
+      height: var(--spooky-size);
+      opacity: .95;
+      filter: drop-shadow(0 0 6px rgba(63, 240, 193, .25));
+    }
+
+    .spooky-item img {
+      width: 100%;
+      height: 100%;
+      display: block;
+      user-select: none;
+    }
+
+    @media (max-width: 380px) {
+
+      /* Tiny phones: tighten spacing slightly */
+      :root {
+        --spooky-size: clamp(120px, 6vmin, 280px);
+        --spooky-gap: calc(var(--spooky-size) * 2.3);
+      }
     }
   </style>
-</head>
+  <!-- Alternating side imagery (responsive PNG) -->
+  <div class="spooky-trail" aria-hidden="true"></div>
+  <script>
+    (function () {
+      // ---- EDIT THESE PATHS ----
+      const LEFT_SRC = 'img/pumpkin.png';     // used on left rows
+      const RIGHT_SRC = 'img/cat.png';   // used on right rows
+      // --------------------------
+
+      const trail = document.querySelector('.spooky-trail');
+
+      function cssPx(varName) {
+        // read a CSS variable (resolved) and return number of pixels
+        const val = getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+        return parseFloat(val || '0');
+      }
+
+      function build() {
+        trail.innerHTML = '';
+
+        const gap = cssPx('--spooky-gap') || 80;
+        const size = cssPx('--spooky-size') || 28;
+        const pad = cssPx('--spooky-pad') || 12;
+
+        const vh = (window.visualViewport ? visualViewport.height : window.innerHeight);
+        const rows = Math.ceil(vh / gap) + 2;
+
+        for (let i = 0; i < rows; i++) {
+          const holder = document.createElement('div');
+          holder.className = 'spooky-item';
+          holder.style.top = (i * gap) + 'px';
+
+          const isLeft = (i % 2 === 0);
+          // Respect notches/safe areas on iOS
+          if (isLeft) {
+            holder.style.left = `calc(${pad}px + env(safe-area-inset-left, 0px))`;
+          } else {
+            holder.style.right = `calc(${pad}px + env(safe-area-inset-right, 0px))`;
+          }
+
+          const img = new Image(size, size);
+          img.src = isLeft ? LEFT_SRC : RIGHT_SRC;
+          img.alt = ''; // decorative
+          img.decoding = 'async';
+          img.loading = 'lazy';
+          holder.appendChild(img);
+
+          trail.appendChild(holder);
+        }
+      }
+
+      // Build initially and on viewport changes
+      build();
+      addEventListener('resize', build, { passive: true });
+      if (window.visualViewport) {
+        visualViewport.addEventListener('resize', build, { passive: true });
+      }
+    })();
+  </script>
+
+
 <body>
   <header>
     <img src="img/mindgoblin.png" alt="Mind Goblin Icon">
     <h1>Welcome to MindGobblin</h1>
-    <p>A collection of experiments & games</p>
+    <p>A collection of games & things</p>
   </header>
 
   <nav>
+    <h2 class="nav-section" id="Games">Games</h2>
     <a href="tetris.html">▶ Tong's Tetris</a>
-    <a href="place.html">🟦 The Location 🟧</a>
+    <a href="wordle.html">📝 Wordle</a>
     <a href="astroids.html">☄️ Astroids 🚀</a>
-    <a href="drums.html">🥁 Drums 🪘</a>
-    <a href="condestructor.html">🤖 ConDestructor 👽</a>
-    <a href="pentathalon.html">🏃🏻‍♂️ Pentathalon 🥇</a>
-    <a href="ghoul.html">Ghoul</a>
-    <a href="warmonger.html">Warmonger</a>
     <a href="game.html">▶ Click Timing Game ⏱️</a>
     <a href="snake.html">🐍 Snake Game 🕹️</a>
+
+    <h2 class="nav-section" id="Things">Things</h2>
+    <a href="place.html">🟦 The Location 🟧</a>
+    <a href="drums.html">🥁 Drums 🪘</a>
     <a href="life.html">🌱 Conway’s Life Simulation 🦎</a>
-    <a href="text-story.html">👸 Echoes of the Heartforge 🏰</a>
+
+    <h2 class="nav-section" id="Tools">Tools</h2>
     <a href="spotify.html">🎧 Spotify Playlist Maker 🎧</a>
+
+    <h2 class="nav-section" id="Under Development">Under Development</h2>
+    <a href="pentathalon.html">🏃🏻‍♂️ Pentathalon 🥇</a>
+    <a href="condestructor.html">🤖 ConDestructor 👽</a>
+    <a href="ghoul.html">Ghoul</a>
+    <a href="warmonger.html">Warmonger</a>
+    <a href="text-story.html">👸 Echoes of the Heartforge 🏰</a>
     <a href="powell.html">📝 Powell</a>
-    <a href="wordle.html">📝 Wordle</a>
   </nav>
+
 </body>
+
 </html>
