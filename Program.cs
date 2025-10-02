@@ -812,7 +812,7 @@ static class PlaceBoard
 
     public static readonly string[] Palette = new[]
     {
-        "#000000","#FFFFFF","#FF4500","#FFA800","#FFD635",
+        "#FF4500","#000000","#FFFFFF","#FFA800","#FFD635",
         "#00A368","#00CC78","#7EED56","#2450A4","#3690EA",
         "#51E9F4","#811E9F","#B44AC0","#FF99AA","#9C6926",
         "#6D482F","#BE0039","#FFB470","#515252","#898D90"
