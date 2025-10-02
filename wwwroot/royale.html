@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Clash Royale Stats</title>
+<style>
+  :root{ --bg:#0b0f17; --panel:#121a28; --fg:#e7ecef; --muted:#98a2ad; --edge:#1f2a3c; --brand:#57e6c1; --brand2:#76ffd9; --danger:#ff6b6b; }
+  html,body{height:100%}
+  body{margin:0;background:radial-gradient(1200px 800px at 10% -10%, #132030 0, transparent 60%),
+                   radial-gradient(1200px 800px at 110% 10%, #0e1a13 0, transparent 55%), var(--bg);
+       color:var(--fg);font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif}
+  .wrap{max-width:980px;margin:24px auto;padding:0 16px}
+  header{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+  header h1{font-size:20px;margin:0;color:var(--brand2)}
+  .card{background:var(--panel);border:1px solid var(--edge);border-radius:14px;padding:14px 16px;box-shadow:0 10px 24px #0006}
+  label{display:block;margin:8px 0 4px;color:var(--muted)}
+  input,select{width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--edge);background:#0f1522;color:var(--fg)}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .btns{display:flex;gap:10px;margin-top:12px}
+  button{padding:10px 14px;border-radius:12px;border:1px solid var(--edge);background:linear-gradient(180deg,var(--brand),var(--brand2));color:#072016;font-weight:600;cursor:pointer}
+  button.secondary{background:#0f1522;color:var(--fg)}
+  .hint{font-size:13px;color:var(--muted);margin-top:6px}
+  .error{color:var(--danger);font-weight:700}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px}
+  .pill{display:inline-block;padding:4px 8px;border:1px solid var(--edge);border-radius:999px;background:#0f1522;color:var(--fg);font-size:12px}
+  pre{background:#0f1522;border:1px solid var(--edge);padding:12px;border-radius:12px;overflow:auto;max-height:400px}
+  .footer{margin-top:14px;color:var(--muted);font-size:12px}
+  a{color:var(--brand2)}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 2l2.39 4.84L20 8l-4 3.9.94 5.5L12 15.77 7.06 17.4 8 11.9 4 8l5.61-1.16L12 2z" stroke="#76ffd9"/></svg>
+      <h1>Clash Royale Stats</h1>
+    </header>
+
+    <div class="card">
+      <p>Pick a category & enter your tag!</p>
+      <div class="row">
+        <div>
+          <label for="mode">category</label>
+          <select id="mode">
+            <option value="player">Player profile</option>
+            <option value="battlelog">Player battle log</option>
+            <option value="clan">Clan by tag</option>
+            <option value="cards">All cards</option>
+          </select>
+        </div>
+        <div>
+          <label for="tag">Tag (with or without #)</label>
+          <input id="tag" type="text" placeholder="#2PGQ9U8CV" />
+          <div class="hint">We auto-encode <code>#</code> to <code>%23</code>. Valid tag chars: 0 2 8 9 C G J L P Q R U V Y</div>
+        </div>
+      </div>
+      <div class="btns">
+        <button id="btnFetch">Fetch</button>
+        <button class="secondary" id="btnClear">Clear</button>
+      </div>
+      <div id="msg" class="hint" style="margin-top:8px"></div>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <h3 style="margin:0 0 10px">Result</h3>
+      <div id="result"></div>
+      <pre id="raw"></pre>
+      <div class="footer">Server proxy path examples: <code>/cr/v1/cards</code>, <code>/cr/v1/players/%23TAG</code>, <code>/cr/v1/clans/%23TAG</code></div>
+    </div>
+  </div>
+
+<script>
+  const $ = (s)=>document.querySelector(s);
+  const msg = (t, type='')=>{ const el=$('#msg'); el.textContent=t||''; el.className= type==='error'?'hint error':'hint'; };
+
+  function sanitizeTag(tag){
+    if(!tag) return '';
+    tag = tag.trim().toUpperCase();
+    if(tag.startsWith('#')) tag = tag.slice(1);
+    return encodeURIComponent('%23'+tag);
+  }
+
+  function renderPlayer(data){
+    const r = $('#result'); r.innerHTML = '';
+    if(!data || !data.name){ r.innerHTML = '<div class="hint">No player data.</div>'; return; }
+    const top = document.createElement('div');
+    top.innerHTML = `
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <div class="pill">${data.tag||''}</div>
+        <div style="font-size:18px;font-weight:700">${data.name}</div>
+        <div class="pill">Trophies: ${data.trophies}</div>
+        <div class="pill">Best: ${data.bestTrophies}</div>
+        ${data.clan?`<div class="pill">Clan: ${data.clan.name} (${data.clan.tag})</div>`:''}
+        <div class="pill">Arena: ${data.arena?.name||'—'}</div>
+      </div>
+    `;
+    r.appendChild(top);
+
+    if(Array.isArray(data.currentDeck)){
+      const deck = document.createElement('div');
+      deck.style.marginTop = '12px';
+      deck.innerHTML = '<div class="hint">Current Deck</div>';
+      const grid = document.createElement('div'); grid.className = 'grid';
+      data.currentDeck.forEach(c=>{
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.style.padding='10px';
+        card.innerHTML = `<div style="font-weight:600">${c.name}</div>
+                          <div class="hint">Level ${c.level} • Max ${c.maxLevel}</div>`;
+        grid.appendChild(card);
+      });
+      deck.appendChild(grid); r.appendChild(deck);
+    }
+  }
+
+  function renderCards(data){
+    const r = $('#result'); r.innerHTML = '';
+    if(!Array.isArray(data?.items)){ r.innerHTML='<div class="hint">No cards found.</div>'; return; }
+    const grid = document.createElement('div'); grid.className='grid';
+    data.items.forEach(c=>{
+      const el = document.createElement('div'); el.className='card'; el.style.padding='10px';
+      el.innerHTML = `<div style="font-weight:700">${c.name}</div>
+                      <div class="hint">Max Level: ${c.maxLevel ?? (c.maxLevelForTournament||'—')}</div>`;
+      grid.appendChild(el);
+    });
+    r.appendChild(grid);
+  }
+
+  function renderClan(data){
+    const r = $('#result'); r.innerHTML = '';
+    if(!data?.name){ r.innerHTML = '<div class="hint">Clan not found.</div>'; return; }
+    const top = document.createElement('div');
+    top.innerHTML = `<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
+      <div class="pill">${data.tag}</div>
+      <div style="font-weight:700;font-size:18px">${data.name}</div>
+      <div class="pill">Members: ${data.members}/50</div>
+      <div class="pill">Score: ${data.clanScore}</div>
+    </div>`;
+    r.appendChild(top);
+
+    if(Array.isArray(data.memberList)){
+      const list = document.createElement('div'); list.style.marginTop='12px';
+      list.innerHTML = '<div class="hint">Members</div>';
+      const grid = document.createElement('div'); grid.className='grid';
+      data.memberList.forEach(m=>{
+        const el=document.createElement('div'); el.className='card'; el.style.padding='10px';
+        el.innerHTML = `<div style="font-weight:600">${m.name}</div>
+                        <div class="hint">Trophies: ${m.trophies}</div>
+                        <div class="hint">Role: ${m.role}</div>`;
+        grid.appendChild(el);
+      });
+      list.appendChild(grid); r.appendChild(list);
+    }
+  }
+
+  async function run(){
+    const mode = $('#mode').value;
+    const tag = sanitizeTag($('#tag').value);
+
+    let path = '';
+    if(mode==='player'){ if(!tag){ msg('Enter a player tag', 'error'); return; } path = `/cr/v1/players/${tag}`; }
+    else if(mode==='battlelog'){ if(!tag){ msg('Enter a player tag', 'error'); return; } path = `/cr/v1/players/${tag}/battlelog`; }
+    else if(mode==='clan'){ if(!tag){ msg('Enter a clan tag', 'error'); return; } path = `/cr/v1/clans/${tag}`; }
+    else if(mode==='cards'){ path = `/cr/v1/cards`; }
+
+    msg('Fetching...');
+    $('#result').innerHTML=''; $('#raw').textContent='';
+
+    try{
+      const res = await fetch(path, { method:'GET', cache:'no-store', redirect:'follow' });
+      const text = await res.text();
+      let data = null;
+      try { data = JSON.parse(text); } catch{ /* leave as text */ }
+
+      if(!res.ok){
+        msg(`HTTP ${res.status}. ${data?.message || text || 'Error'}`, 'error');
+        $('#raw').textContent = text;
+        return;
+      }
+
+      $('#raw').textContent = JSON.stringify(data, null, 2);
+
+      if(mode==='player') renderPlayer(data);
+      else if(mode==='cards') renderCards(data);
+      else if(mode==='clan') renderClan(data);
+      else $('#result').innerHTML = '<div class="hint">Battle log shown in raw JSON below.</div>';
+
+      msg('Done.');
+    }catch(err){
+      msg('Error: '+(err?.message||err), 'error');
+    }
+  }
+
+  $('#btnFetch').onclick = run;
+  $('#btnClear').onclick = ()=>{ $('#result').innerHTML=''; $('#raw').textContent=''; msg(''); };
+</script>
+</body>
+</html>
