@@ -74,6 +74,7 @@ jobs:
               -e SPOTIFY_CLIENT_ID="${{ secrets.SPOTIFY_CLIENT_ID }}" \
               -e SPOTIFY_CLIENT_SECRET="${{ secrets.SPOTIFY_CLIENT_SECRET }}" \
               -e SPOTIFY_REDIRECT_URI="${{ secrets.SPOTIFY_REDIRECT_URI }}" \
+              -e CR_TOKEN=$CR_TOKEN \
               -e PLACE_DATA_PATH="/data/place-board.bin" \
               -v /srv/mindgobblin/data:/data \
               -v /srv/mindgobblin/dp-keys:/app/keys \

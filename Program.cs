@@ -15,6 +15,15 @@ string? SPOTIFY_CLIENT_SECRET = Environment.GetEnvironmentVariable("SPOTIFY_CLIE
 string  SPOTIFY_REDIRECT_URI  = Environment.GetEnvironmentVariable("SPOTIFY_REDIRECT_URI") ?? "http://127.0.0.1:5173/callback";
 string  SPOTIFY_SCOPES        = "playlist-modify-public playlist-modify-private";
 
+// ---- Clash Royale config ----
+string? CR_TOKEN = Environment.GetEnvironmentVariable("CR_TOKEN"); // <-- set this in env
+
+// ---- HttpClient for Clash Royale ----
+builder.Services.AddHttpClient("clashroyale", c =>
+{
+    c.BaseAddress = new Uri("https://api.clashroyale.com"); // no trailing slash
+});
+
 // ---- Kestrel binding (loopback; supports localhost + 127.0.0.1) ----
 var inContainer = Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") == "true";
 
@@ -148,6 +157,37 @@ app.MapGet("/debug/routes", (EndpointDataSource ds) =>
         .Select(e => new { route = e.RoutePattern.RawText, methods = string.Join(",", e.Metadata.OfType<HttpMethodMetadata>().FirstOrDefault()?.HttpMethods ?? new[] { "ANY" }) });
     return Results.Ok(list);
 });
+
+// ----------Royale Helpers-------------
+// ---------- Clash Royale proxy (GET pass-through) ----------
+app.MapGet("/cr/{**path}", async (HttpContext ctx, string path, IHttpClientFactory http) =>
+{
+    // Require CR_TOKEN in env
+    string Require(string? v, string name) =>
+        !string.IsNullOrWhiteSpace(v) ? v : throw new Exception($"Missing environment variable {name}");
+
+    var crToken = Require(Environment.GetEnvironmentVariable("CR_TOKEN"), "CR_TOKEN");
+
+    // Build upstream URL: https://api.clashroyale.com/<path>?<query>
+    var qs = ctx.Request.QueryString.HasValue ? ctx.Request.QueryString.Value : "";
+    var upstreamPath = "/" + (path?.TrimStart('/') ?? "");
+    var client = http.CreateClient("clashroyale");
+
+    var req = new HttpRequestMessage(HttpMethod.Get, upstreamPath + qs);
+    req.Headers.Authorization =
+        new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", crToken);
+
+    if (ctx.Request.Headers.TryGetValue("User-Agent", out var ua))
+        req.Headers.TryAddWithoutValidation("User-Agent", ua.ToString());
+
+    using var res = await client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ctx.RequestAborted);
+    var contentType = res.Content.Headers.ContentType?.ToString() ?? "application/json; charset=utf-8";
+    var text = await res.Content.ReadAsStringAsync(ctx.RequestAborted);
+
+    // Return as text content with the SAME status code as upstream
+    return Results.Content(text, contentType, System.Text.Encoding.UTF8, (int)res.StatusCode);
+})
+.WithDisplayName("Clash Royale Proxy (GET)");
 
 // ---------- Spotify helpers ----------
 string Require(string? v, string name) =>
