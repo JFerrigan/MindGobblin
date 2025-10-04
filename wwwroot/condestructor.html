@@ -1,624 +1,922 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>ModShip — Aggro, Fewer Enemies, 3× Speed</title>
-<style>
-  html,body{margin:0;height:100%;background:#0b0f17;color:#e7ecef;font:14px/1.35 system-ui,Segoe UI,Roboto,Inter,Arial,sans-serif;overflow:hidden}
-  #ui{position:fixed;inset:0;pointer-events:none}
-  .hud{position:absolute;left:12px;top:10px;background:#0f1522aa;border:1px solid #1f2a3c;padding:8px 10px;border-radius:10px;backdrop-filter:blur(4px)}
-  .hud h1{margin:0 0 4px;font-size:14px;color:#76ffd9}
-  .hud .row{display:flex;gap:10px;align-items:center}
-  .badge{display:inline-block;padding:2px 6px;border-radius:999px;border:1px solid #1f2a3c;background:#121a28;color:#98a2ad;font-size:12px}
-  #inventory{position:absolute;left:50%;bottom:10px;transform:translateX(-50%);display:flex;gap:8px;padding:8px;background:#0f1522aa;border:1px solid #1f2a3c;border-radius:12px;pointer-events:auto}
-  .slot{width:46px;height:46px;border-radius:10px;border:1px dashed #1f2a3c;display:flex;align-items:center;justify-content:center;color:#98a2ad;position:relative}
-  .slot.sel{outline:2px solid #76ffd9;outline-offset:2px}
-  .slot .n{position:absolute;right:4px;bottom:3px;font-size:10px;color:#98a2ad}
-  .chip{width:34px;height:34px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;border:1px solid #1f2a3c}
-  #help{position:absolute;right:12px;top:10px;max-width:420px;background:#0f1522f2;border:1px solid #1f2a3c;padding:10px 12px;border-radius:12px;display:none;pointer-events:auto}
-  #help h2{margin:0 0 4px;color:#57e6c1;font-size:15px}
-  #help p, #help ul{margin:6px 0 0;color:#cdd5db}
-  #help ul{padding-left:18px}
-  #toast{position:absolute;left:50%;top:16px;transform:translateX(-50%);background:#121a28;border:1px solid #1f2a3c;padding:6px 10px;border-radius:999px;display:none}
-  .bar{position:absolute;left:12px;bottom:68px;width:220px;height:8px;background:#121a28;border:1px solid #1f2a3c;border-radius:999px;overflow:hidden}
-  .fill{height:100%;background:#57e6c1}
-  canvas{display:block}
-  a{color:#76ffd9}
-</style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Captain-Forever-ish — Parts, Detach, Orientation + Dev</title>
+  <style>
+    :root {
+      --fg: #e7ecef;
+      --muted: #9aa6b2;
+      --brand: #57e6c1;
+      --danger: #ff6b6b;
+      --bg: #000;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--fg);
+      font: 14px/1.4 system-ui, Segoe UI, Roboto, Inter, Arial;
+      overflow: hidden
+    }
+
+    #hud {
+      position: fixed;
+      left: 10px;
+      top: 10px;
+      display: flex;
+      gap: 8px;
+      z-index: 10
+    }
+
+    .pill {
+      background: rgba(255, 255, 255, .08);
+      padding: 4px 8px;
+      border-radius: 8px
+    }
+
+    #msg {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none
+    }
+
+    #msg .card {
+      background: rgba(17, 24, 38, .9);
+      border: 1px solid #1f2a3c;
+      padding: 14px 16px;
+      border-radius: 12px;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, .35)
+    }
+
+    #devPanel {
+      position: fixed;
+      right: 10px;
+      top: 10px;
+      min-width: 280px;
+      max-width: 360px;
+      display: none;
+      z-index: 11;
+    }
+
+    #devPanel .card {
+      background: rgba(17, 24, 38, .92);
+      border: 1px solid #1f2a3c;
+      padding: 10px 12px;
+      border-radius: 10px
+    }
+
+    #devPanel h3 {
+      margin: 0 0 6px;
+      font-size: 14px;
+      color: #76ffd9
+    }
+
+    #devPanel code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px
+    }
+
+    canvas {
+      display: block
+    }
+
+    kbd {
+      background: #111826;
+      border: 1px solid #1f2a3c;
+      border-bottom-width: 2px;
+      border-radius: 6px;
+      padding: 0 6px;
+      margin: 0 2px
+    }
+  </style>
 </head>
+
 <body>
-<canvas id="game"></canvas>
-<div id="ui">
-  <div class="hud" id="hud">
-    <h1>ModShip</h1>
-    <div class="row">
-      <span class="badge" id="statHP">HP 0/0</span>
-      <span class="badge" id="statParts">Parts 0</span>
-      <span class="badge" id="statTier">Threat T1</span>
-      <span class="badge" id="statLoot">Loot 0</span>
-      <span class="badge" id="statMode">Mode: Combat</span>
+  <canvas id="canvas"></canvas>
+  <div id="hud">
+    <div class="pill">Score: <span id="score">0</span></div>
+    <div class="pill">Best: <span id="best">0</span></div>
+    <div class="pill">Lives: <span id="lives">3</span></div>
+    <div class="pill">Level: <span id="level">1</span></div>
+    <div class="pill">Parts: <span id="partCount">0</span></div>
+    <div id="devBadge" class="pill" style="display:none;color:#111;background:#76ffd9">DEV</div>
+  </div>
+  <div id="msg"></div>
+
+  <!-- Dev panel -->
+  <div id="devPanel">
+    <div class="card">
+      <h3>Dev Cheats (press <kbd>`</kbd> to toggle)</h3>
+      <div style="opacity:.9;margin-bottom:6px">
+        <div><kbd>G</kbd> god · <kbd>U</kbd> infinite lives · <kbd>1</kbd> drone · <kbd>2</kbd> salvage×3</div>
+        <div><kbd>3</kbd> +Gun · <kbd>4</kbd> +Thruster · <kbd>K</kbd> clear · <kbd>[</kbd>/<kbd>]</kbd> ROF</div>
+      </div>
+      <div style="opacity:.8;font-size:12px;line-height:1.5">
+        <div><code>dev.god(true)</code>, <code>dev.infiniteLives(true)</code></div>
+        <div><code>dev.give("Gun",2)</code>, <code>dev.salvage("Thruster",5)</code></div>
+        <div><code>dev.spawn("drone",3)</code>, <code>dev.level(7)</code>, <code>dev.clear()</code></div>
+        <div><code>dev.rate(120)</code> (ms), <code>dev.dump()</code></div>
+      </div>
     </div>
   </div>
-  <div class="bar"><div class="fill" id="xpFill" style="width:0%"></div></div>
-  <div id="inventory"></div>
-  <div id="help">
-    <h2>Controls</h2>
-    <ul>
-      <li><b>WASD</b> move, <b>Mouse</b> aim, <b>Left Click</b> shoot</li>
-      <li><b>E</b> toggle Build Mode (time-slow), <b>R</b> rotate part, <b>X</b> remove hovered attached part</li>
-      <li><b>1-9</b> select inventory slot, or click a slot</li>
-      <li>Fly over <i>part crates</i> to collect loot</li>
-      <li><b>H</b> toggle help, <b>P</b> save, <b>L</b> load, <b>N</b> new run</li>
-    </ul>
-    <p>Aggressive enemies, about half as many on screen, and movement is ~3× faster.</p>
-  </div>
-  <div id="toast"></div>
-</div>
 
-<script>
-(() => {
-  // ======= Tunables =======
-  const SPEED_MULT = 3.0;    // ← bump to 3.5 or 4 for "even faster"
-  const ENEMY_CAP_BASE = 5;  // half the previous 10
+  <script>
+    (() => {
+      // ------------------------------------------------------------
+      // Dev Config
+      // ------------------------------------------------------------
+      const Config = {
+        DEV: {
+          enabled: true,          // show dev badge/panel & hotkeys
+          startGod: false,        // start invulnerable
+          startInfiniteLives: false,
+          extraDrops: 0,          // +N extra salvage on drone death
+          fireRateBoostMs: 0      // subtract from computed fire cooldown (clamped)
+        }
+      };
 
-  // ======= Utility =======
-  const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
-  const rand=(a,b)=>Math.random()*(b-a)+a;
-  const rint=(a,b)=>Math.floor(rand(a,b+1));
-  const choice = arr => (arr && arr.length ? arr[Math.floor(Math.random()*arr.length)] : null);
-  const lerp=(a,b,t)=>a+(b-a)*t;
-  const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
-  const angleTo=(a,b)=>Math.atan2(b.y-a.y,b.x-a.x);
-  const now=()=>performance.now()/1000;
-
-  // ======= Canvas / Camera =======
-  const canvas=document.getElementById('game');
-  const ctx=canvas.getContext('2d');
-  let W=innerWidth, H=innerHeight;
-  const onResize=()=>{W=canvas.width=innerWidth; H=canvas.height=innerHeight;}
-  addEventListener('resize', onResize); onResize();
-  const cam={x:0,y:0,zoom:1};
-
-  // ======= UI =======
-  const invEl=document.getElementById('inventory');
-  const statHP=document.getElementById('statHP');
-  const statParts=document.getElementById('statParts');
-  const statTier=document.getElementById('statTier');
-  const statLoot=document.getElementById('statLoot');
-  const statMode=document.getElementById('statMode');
-  const xpFill=document.getElementById('xpFill');
-  const helpEl=document.getElementById('help');
-  const toastEl=document.getElementById('toast');
-  function toast(msg, ms=1400){
-    toastEl.textContent=msg; toastEl.style.display='inline-block';
-    clearTimeout(toast._t);
-    toast._t=setTimeout(()=>toastEl.style.display='none', ms);
-  }
-
-  // ======= Parts, Tiers, Colors =======
-  const GRID_SIZE=18;
-  const GRID=GRID_SIZE;
-  const PartTiers=[
-    {name:"Mk I", color:"#8aa4ff", gun:{dmg:4, rate:3.0, speed:280}, thr:{force:150}},
-    {name:"Mk II", color:"#57e6c1", gun:{dmg:6, rate:3.6, speed:320}, thr:{force:210}},
-    {name:"Mk III", color:"#ffd36e", gun:{dmg:8, rate:4.2, speed:360}, thr:{force:280}},
-    {name:"Mk IV", color:"#ff8db3", gun:{dmg:11, rate:5.0, speed:410}, thr:{force:360}},
-    {name:"Mk V", color:"#76ffd9", gun:{dmg:15, rate:6.0, speed:470}, thr:{force:460}},
-  ];
-  const TypeInfo={
-    core:{size:2, hp:120, symbol:"C"},
-    hull:{size:1, hp:40, symbol:"H"},
-    gun:{size:1, hp:30, symbol:"G"},
-    thruster:{size:1, hp:30, symbol:"T"},
-    shield:{size:1, hp:25, symbol:"S"},
-  };
-
-  function makePart(type,tier=1,rot=0){
-    const ti=TypeInfo[type];
-    const pt=PartTiers[clamp(tier-1,0,PartTiers.length-1)];
-    const baseHP=ti.hp + (tier-1)*8;
-    const p={id:crypto.randomUUID(),type,tier,rot,dx:0,dy:0,hp:baseHP,maxHP:baseHP};
-    if(type==="gun"){Object.assign(p,pt.gun); p._cd=0;}
-    if(type==="thruster"){p.force=pt.thr.force;}
-    return p;
-  }
-
-  // ======= Player & World =======
-  const keys={}; addEventListener('keydown',e=>{keys[e.key.toLowerCase()]=true; if([' '].includes(e.key)) e.preventDefault();});
-  addEventListener('keyup',e=>keys[e.key.toLowerCase()]=false);
-  const mouse={x:0,y:0,worldX:0,worldY:0,down:false}; 
-  addEventListener('mousemove',e=>{mouse.x=e.clientX; mouse.y=e.clientY;});
-  addEventListener('mousedown',()=>mouse.down=true);
-  addEventListener('mouseup',()=>mouse.down=false);
-
-  const player={
-    x:0,y:0,vx:0,vy:0,angle:0, hp:150, maxHP:150, loot:0, level:1, xp:0,
-    parts:[],
-    core: makePart("core",1,0),
-  };
-  player.parts.push(Object.assign(player.core,{dx:0,dy:0}));
-  const inventory=[]; let invSel=0;
-
-  const bullets=[], enemyBullets=[], particles=[], lootCrates=[], enemies=[];
-  let buildMode=false, timeScale=1;
-
-  function recalcPlayerStats(){
-    let hp=TypeInfo.core.hp;
-    for(const p of player.parts){ hp += (p.type!=="core") ? Math.round(0.6*p.maxHP) : 0; }
-    player.maxHP = clamp(hp, 80, 600);
-    player.hp = clamp(player.hp, 0, player.maxHP);
-  }
-
-  // ======= Inventory UI =======
-  function tierColor(t){return PartTiers[t-1]?.color||"#98a2ad";}
-  function typeShort(t){return TypeInfo[t]?.symbol||"?"}
-  const invElRef=document.getElementById('inventory');
-  function renderInventory(){
-    invElRef.innerHTML="";
-    for(let i=0;i<9;i++){
-      const slot=document.createElement('div'); slot.className="slot"+(i===invSel?" sel":"");
-      const lab=document.createElement('div'); lab.className="n"; lab.textContent=(i+1);
-      slot.appendChild(lab);
-      const item=inventory[i];
-      if(item){
-        const chip=document.createElement('div'); chip.className="chip";
-        chip.style.background=tierColor(item.tier);
-        chip.style.color="#0b0f17";
-        chip.textContent=typeShort(item.type);
-        chip.title=`${item.type.toUpperCase()} ${PartTiers[item.tier-1].name}`;
-        slot.appendChild(chip);
+      // ------------------------------------------------------------
+      // Canvas
+      // ------------------------------------------------------------
+      const canvas = document.getElementById('canvas');
+      const ctx = canvas.getContext('2d');
+      const DPR = Math.min(2, devicePixelRatio || 1);
+      function resize() {
+        canvas.width = Math.floor(innerWidth * DPR); canvas.height = Math.floor(innerHeight * DPR);
+        canvas.style.width = innerWidth + 'px'; canvas.style.height = innerHeight + 'px'; ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
       }
-      slot.onclick=()=>{invSel=i; renderInventory();}
-      invElRef.appendChild(slot);
-    }
-  }
-  renderInventory();
-  addEventListener('keydown',e=>{
-    if(e.key>='1'&&e.key<='9'){invSel=parseInt(e.key)-1; renderInventory();}
-  });
+      addEventListener('resize', resize); resize();
 
-  // ======= Build Helpers =======
-  function worldToScreen(x,y){ return {x:(x-cam.x)*cam.zoom+W/2, y:(y-cam.y)*cam.zoom+H/2}; }
-  function screenToWorld(x,y){ return {x:(x-W/2)/cam.zoom+cam.x, y:(y-H/2)/cam.zoom+cam.y}; }
-  function snap(v){ return Math.round(v/GRID_SIZE)*GRID_SIZE; }
-  function validAttach(dx,dy){
-    const occ=new Set(player.parts.map(p=>`${p.dx},${p.dy}`));
-    if(occ.has(`${dx},${dy}`)) return false;
-    const adj=[[1,0],[-1,0],[0,1],[0,-1]].some(([ax,ay])=>occ.has(`${dx+ax*GRID_SIZE},${dy+ay*GRID_SIZE}`));
-    return adj || (dx===0&&dy===0);
-  }
-  function partUnderCursor(){
-    const {worldX,worldY}=mouse;
-    let best=null, bestD=9999;
-    for(const p of player.parts){
-      const px=player.x+p.dx, py=player.y+p.dy;
-      const d=Math.hypot(worldX-px, worldY-py);
-      if(d<GRID_SIZE*0.8 && d<bestD){best=p; bestD=d;}
-    }
-    return best;
-  }
+      // ------------------------------------------------------------
+      // HUD
+      // ------------------------------------------------------------
+      const scoreEl = document.getElementById('score');
+      const bestEl = document.getElementById('best');
+      const livesEl = document.getElementById('lives');
+      const levelEl = document.getElementById('level');
+      const partCountEl = document.getElementById('partCount');
+      const msg = document.getElementById('msg');
+      const devBadge = document.getElementById('devBadge');
+      const devPanel = document.getElementById('devPanel');
+      const setText = (el, v) => { if (el) el.textContent = v; };
+      const showMsg = (html) => msg.innerHTML = `<div class="card">${html}</div>`;
+      const hideMsg = () => msg.innerHTML = '';
 
-  // ======= Enemies & Loot =======
-  function spawnEnemy(threat){
-    const radius = rand(600, 1000);
-    const ang = rand(-Math.PI, Math.PI);
-    const ex = player.x + Math.cos(ang)*radius;
-    const ey = player.y + Math.sin(ang)*radius;
+      if (Config.DEV.enabled) devBadge.style.display = 'inline-block';
 
-    const baseTier = clamp(1 + Math.floor(threat/2), 1, 5);
-    const core = makePart("core", baseTier);
-    const e = {
-      x: ex, y: ey, vx: 0, vy: 0, angle: 0,
-      hp: core.hp, baseHP: core.hp,
-      parts: [Object.assign(core, {dx:0, dy:0})],
-      tier: baseTier,
-      fireCD: rand(0.2, 0.9),   // shoots soon after spawn
-      state: "aggro",           // aggressive by default
-      aggro: 1200,
-      wanderA: rand(0, Math.PI*2),
-      wanderT: rand(2, 5),
-      speedBoost: 1.25
-    };
+      // ------------------------------------------------------------
+      // Helpers & Tuning
+      // ------------------------------------------------------------
+      const TAU = Math.PI * 2;
+      const rand = (a, b) => Math.random() * (b - a) + a;
+      const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+      const dist2 = (x1, y1, x2, y2) => { const dx = x2 - x1, dy = y2 - y1; return dx * dx + dy * dy; };
+      const wrap = (o) => { if (o.x < 0) o.x += innerWidth; if (o.x > innerWidth) o.x -= innerWidth; if (o.y < 0) o.y += innerHeight; if (o.y > innerHeight) o.y -= innerHeight; };
+      const rotXY = (x, y, a) => ({ x: x * Math.cos(a) - y * Math.sin(a), y: x * Math.sin(a) + y * Math.cos(a) }); // NEW
 
-    // build a ship with a guaranteed gun
-    let rings = clamp(1 + Math.floor(threat/3), 1, 3);
-    const count = clamp(4 + Math.floor(threat*1.8), 4, 16);
-    let hasGun = false;
-    for (let i = 0; i < count; i++) {
-      const forceGun = !hasGun && (i === count-1);
-      const t = forceGun ? "gun"
-                         : (Math.random() < 0.45 ? "hull" : (Math.random() < 0.5 ? "gun" : "thruster"));
-      const tier = clamp(baseTier + rint(0, 1), 1, 5);
-      const p=makePart(t,tier, rint(0,3));
-      const gx=(rint(-rings,rings))*GRID_SIZE, gy=(rint(-rings,rings))*GRID_SIZE;
-      if((gx===0&&gy===0) || e.parts.some(q=>q.dx===gx&&q.dy===gy)){ i--; continue; }
-      p.dx=gx; p.dy=gy; e.parts.push(p); e.hp+=Math.round(0.6*p.maxHP);
-      if(p.type==="gun") hasGun=true;
-    }
-    enemies.push(e);
-  }
+      // Base projectile/asteroid tuning
+      const BULLET_SPEED = 9.0, BULLET_RANGE = 1000;
+      const ENEMY_BULLET_SPEED = 6, ENEMY_BULLET_RANGE = 1100;
+      const BULLET_DMG = 12; // NEW damage per hit
 
-  function dropLoot(enemy){
-    const droppable = enemy.parts.filter(p => p && p.type !== "core");
-    if (!droppable.length) {
-      player.loot += 1;
-      toast("No intact parts — converted to scrap (+1)");
-      player.xp += 6 + enemy.tier*4;
-      if (player.xp >= 100) { player.level++; player.xp -= 100; toast("Level up! Threat cap +1"); }
-      return;
-    }
-    const drops = clamp(rint(1, Math.min(3, droppable.length)), 1, 3);
-    for (let i = 0; i < drops; i++) {
-      const src = choice(droppable);
-      if (!src) continue;
-      const part = makePart(src.type, src.tier, src.rot);
-      lootCrates.push({ x: enemy.x + rand(-20, 20), y: enemy.y + rand(-20, 20), part, t: 0 });
-    }
-    player.xp += 8 + enemy.tier * 6;
-    if (player.xp >= 100) { player.level++; player.xp -= 100; toast("Level up! Threat cap +1"); }
-  }
+      // Modular tuning
+      const GRID = 16, ATTACH_RANGE = 40, TRACTOR_RANGE = 260, TRACTOR_PULL = 0.9;
+      const BASE_THRUST = 0.10, THRUSTER_THRUST = 0.08; // per-thruster
+      const FIRE_CD_BASE = 260, FIRE_CD_MIN = 90;       // NEW: per-gun firing
+      const MAX_BULLETS_PER_GUN = 1;                  // NEW: 1 bullet per gun per trigger
+      const PART_RADIUS = 9;                          // NEW: approximate part hit size
 
-  // ======= Bullets & Particles =======
-  function spawnBullet(x,y,ang,speed, dmg, friendly=true){
-    const b={x,y,vx:Math.cos(ang)*speed, vy:Math.sin(ang)*speed, dmg, life:1.6, friendly};
-    (friendly?bullets:enemyBullets).push(b);
-  }
-  function puff(x,y,c="#98a2ad"){
-    particles.push({x,y,vx:rand(-30,30),vy:rand(-30,30),t:0,life:0.5,color:c});
-  }
+      // ------------------------------------------------------------
+      // Part catalog (with HP)
+      // ------------------------------------------------------------
+      const PartDefs = {
+        Core: { slot: 'Core', hp: 80, size: 1, draw: (c) => { c.strokeStyle = '#e7ecef'; c.lineWidth = 2; c.beginPath(); c.arc(0, 0, 10, 0, TAU); c.stroke(); } },
+        Girder: { slot: 'Girder', hp: 45, size: 1, draw: (c) => { c.strokeStyle = 'rgba(231,236,239,.9)'; c.lineWidth = 2; c.strokeRect(-8, -8, 16, 16); } },
+        Thruster: {
+          slot: 'Thruster', hp: 35, size: 1, thrust: THRUSTER_THRUST,
+          draw: (c) => { c.strokeStyle = '#76ffd9'; c.lineWidth = 2; c.beginPath(); c.moveTo(12, 0); c.lineTo(-8, -7); c.lineTo(-8, 7); c.closePath(); c.stroke(); }
+        },
+        Gun: {
+          slot: 'Gun', hp: 30, size: 1,
+          draw: (c) => { c.strokeStyle = '#57e6c1'; c.lineWidth = 2; c.beginPath(); c.moveTo(12, 0); c.lineTo(-6, -4); c.lineTo(-6, 4); c.closePath(); c.stroke(); }
+        },
+      };
 
-  // ======= Saving =======
-  function save(){
-    const data={player:{
-      x:player.x,y:player.y,hp:player.hp, maxHP:player.maxHP, level:player.level, xp:player.xp, loot:player.loot,
-      parts:player.parts.map(p=>({type:p.type,tier:p.tier,rot:p.rot,dx:p.dx,dy:p.dy}))
-    }, inventory:inventory.map(p=>p?{type:p.type,tier:p.tier,rot:p.rot}:null)};
-    localStorage.setItem('modship_save', JSON.stringify(data));
-    toast("Saved (P)");
-  }
-  function load(){
-    const raw=localStorage.getItem('modship_save'); if(!raw){toast("No save found"); return;}
-    try{
-      const s=JSON.parse(raw);
-      Object.assign(player, {x:s.player.x,y:s.player.y,hp:s.player.hp,maxHP:s.player.maxHP,level:s.player.level,xp:s.player.xp,loot:s.player.loot});
-      player.parts = s.player.parts.map(q=>Object.assign(makePart(q.type,q.tier,q.rot),{dx:q.dx,dy:q.dy}));
-      inventory.length=0;
-      for(let i=0;i<9;i++){ inventory[i]=s.inventory[i]?makePart(s.inventory[i].type,s.inventory[i].tier,s.inventory[i].rot):null; }
-      renderInventory(); recalcPlayerStats(); toast("Loaded (L)");
-    }catch(e){console.error(e); toast("Load failed");}
-  }
-  function newRun(){
-    enemies.length=0; bullets.length=0; enemyBullets.length=0; particles.length=0; lootCrates.length=0;
-    player.x=0; player.y=0; player.vx=player.vy=0; player.level=1; player.xp=0; player.loot=0;
-    player.parts=[Object.assign(makePart("core",1,0),{dx:0,dy:0})];
-    const g=makePart("gun",1,0); g.dx=GRID_SIZE; g.dy=0; player.parts.push(g);
-    const t=makePart("thruster",1,0); t.dx=0; t.dy=GRID_SIZE; player.parts.push(t);
-    inventory.length=0; for(let i=0;i<9;i++) inventory[i]=null; renderInventory();
-    recalcPlayerStats(); toast("New run (N) — starter gun mounted");
-  }
+      // Part instance
+      function makePart(kind, gx, gy, rot = 0) {
+        const def = PartDefs[kind];
+        return { kind, gx, gy, rot, hp: def.hp, dead: false };
+      }
 
-  // ======= Input: Mode & Actions =======
-  addEventListener('keydown',e=>{
-    if(e.key.toLowerCase()==='e'){ buildMode=!buildMode; timeScale=buildMode?0.15:1; statMode.textContent=`Mode: ${buildMode?'Build':'Combat'}`; }
-    if(e.key.toLowerCase()==='h'){ helpEl.style.display=helpEl.style.display==='block'?'none':'block'; }
-    if(e.key.toLowerCase()==='p') save();
-    if(e.key.toLowerCase()==='l') load();
-    if(e.key.toLowerCase()==='n') newRun();
-  });
+      // ------------------------------------------------------------
+      // Entities
+      // ------------------------------------------------------------
+      function makeShip(x, y, player = true) {
+        const parts = [
+          makePart('Core', 0, 0, 0),
+          makePart('Thruster', -1, 0, 0), // left of core, facing +X (pushes forward)
+          makePart('Gun', 1, 0, 0),
+          makePart('Girder', 0, -1, 0),
+          makePart('Girder', 0, 1, 0),
+        ];
+        return { type: 'ship', player, x, y, angle: -Math.PI / 2, vx: 0, vy: 0, parts, fireNext: 0, r: 14, dead: false, invUntil: 0, forcedCd: null };
+      }
 
-  // ======= Game Loop =======
-  let last=now(); let threat=1, spawnTimer=0;
-  const MAX_ENEMIES_BASE = ENEMY_CAP_BASE; // half the enemies
-  function update(dt){
-    // camera
-    cam.x=lerp(cam.x, player.x, 0.1);
-    cam.y=lerp(cam.y, player.y, 0.1);
-    cam.zoom=lerp(cam.zoom, 1, 0.1);
+      // --- Enemy build helpers (no HUD writes) ---
+      function attachPartEnemy(ship, kind) {
+        const occ = new Set(ship.parts.filter(p => !p.dead).map(p => p.gx + ',' + p.gy));
+        const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+        const seen = new Set(['0,0']);
+        const q = [[0, 0]];
+        let chosen = null, guard = 200;
+        while (q.length && guard--) {
+          const [cx, cy] = q.shift();
+          for (const [dx, dy] of dirs) {
+            const nx = cx + dx, ny = cy + dy, k = nx + ',' + ny;
+            if (seen.has(k)) continue;
+            seen.add(k);
+            if (!occ.has(k)) { chosen = { gx: nx, gy: ny }; break; }
+            q.push([nx, ny]);
+          }
+          if (chosen) break;
+        }
+        if (!chosen) chosen = { gx: 0, gy: 0 };
+        ship.parts.push(makePart(kind, chosen.gx, chosen.gy, 0));
+      }
 
-    // mouse world coords
-    const w = screenToWorld(mouse.x, mouse.y); mouse.worldX=w.x; mouse.worldY=w.y;
+      // Weighted random pick for enemy composition
+      function pickEnemyPartKind() {
+        // Heavier on armor (Girder), some Guns, some Thrusters
+        const roll = Math.random();
+        if (roll < 0.5) return 'Girder';     // 50%
+        if (roll < 0.8) return 'Gun';        // 30%
+        return 'Thruster';                   // 20%
+      }
 
-    // difficulty slowly climbs
-    threat = clamp(1 + Math.floor((performance.now()/1000)/60) + player.level-1, 1, 12);
+      // How many extra parts should a drone get?
+      function desiredDroneExtraParts() {
+        const pl = state.entities.find(e => e.type === 'ship' && e.player && !e.dead);
+        const playerParts = pl ? pl.parts.filter(p => !p.dead).length : 3;
+        const lvl = state.level;
 
-    // ===== Movement (3× faster) =====
-    const acc=buildMode?0:1;
-    const ax = (keys['a']?-1:0) + (keys['d']?1:0);
-    const ay = (keys['w']?-1:0) + (keys['s']?1:0);
-    const thrustBase = 220 + player.parts.filter(p=>p.type==='thruster').reduce((s,p)=>s+p.force,0)*0.6;
-    const thrust = thrustBase * SPEED_MULT;
-    player.vx += ax*thrust*dt*acc;
-    player.vy += ay*thrust*dt*acc;
-    player.vx *= 0.88; player.vy *= 0.88; // slightly less drag to feel zippy
-    player.x += player.vx*dt; player.y += player.vy*dt;
+        // Base growth: +1 every 2 levels, plus reaction to player’s build
+        const base = 1 + Math.floor(lvl / 2);
+        const react = Math.max(0, Math.floor((playerParts - 5) / 2));
 
-    // angle faces mouse
-    player.angle = angleTo(player, {x:mouse.worldX,y:mouse.worldY});
+        // Small randomness to avoid clones
+        const jitter = Math.random() < 0.5 ? 0 : 1;
 
-    // ===== Shooting (player) =====
-    if(!buildMode && mouse.down){
-      const guns = player.parts.filter(p=>p.type==='gun');
-      for(const g of guns){
-        g._cd = (g._cd||0) - dt;
-        if(g._cd<=0){
-          const gx=player.x+g.dx, gy=player.y+g.dy;
-          const ang=angleTo({x:gx,y:gy},{x:mouse.worldX,y:mouse.worldY});
-          spawnBullet(gx,gy,ang,g.speed, g.dmg, true);
-          g._cd = 1.0/ g.rate;
-          puff(gx,gy,tierColor(g.tier));
+        // Cap so things don’t get ridiculous
+        const cap = 10 + Math.floor(lvl / 3); // cap creeps up with level
+        return Math.min(base + react + jitter, cap);
+      }
+
+      function makeDrone(level) {
+        const x = Math.random() < 0.5 ? -30 : innerWidth + 30;
+        const y = rand(40, innerHeight - 40);
+        const s = makeShip(x, y, false);
+
+        // Start minimal enemy frame
+        s.parts = [
+          makePart('Core', 0, 0, 0),
+          makePart('Thruster', -1, 0, 0),
+          makePart('Gun', 1, 0, 0)
+        ];
+
+        // Scale enemy complexity by level + player's current build
+        const extra = desiredDroneExtraParts();
+
+        // Hard guardrails: don’t exceed a sane total
+        const MAX_ENEMY_PARTS = 18;
+        const target = Math.min(MAX_ENEMY_PARTS, s.parts.length + extra);
+
+        while (s.parts.filter(p => !p.dead).length < target) {
+          const kind = pickEnemyPartKind();
+          attachPartEnemy(s, kind);
+        }
+
+        // A tiny chance to toss in an extra armor chunk to mix silhouettes
+        if (Math.random() < 0.35 && s.parts.filter(p => !p.dead).length < MAX_ENEMY_PARTS) {
+          attachPartEnemy(s, 'Girder');
+        }
+
+        s.angle = Math.random() * TAU;
+        s.vx = (x < 0 ? 1 : -1) * (1.0 + level * 0.12);
+        s.vy = rand(-0.6, 0.6);
+        s.ai = { fireT: 0 };
+        return s;
+      }
+
+      function asteroid(x, y, size = 3) {
+        const speed = rand(0.3, 1) + state.level * 0.05;
+        const a = rand(0, TAU); const points = 10 + Math.floor(Math.random() * 5);
+        const irregular = []; for (let i = 0; i < points; i++) irregular.push(rand(0.75, 1.25));
+        return { type: 'asteroid', x, y, r: size * 18, size, angle: 0, spin: rand(-0.02, 0.02), vx: Math.cos(a) * speed, vy: Math.sin(a) * speed, irregular };
+      }
+
+      function bullet(x, y, angle, owner = 'player') {
+        return { type: 'bullet', owner, x, y, r: 2, vx: Math.cos(angle) * BULLET_SPEED, vy: Math.sin(angle) * BULLET_SPEED, range: BULLET_RANGE, dead: false };
+      }
+
+      function particle(x, y, vx, vy, life, color) {
+        return { type: 'particle', x, y, vx, vy, life, color };
+      }
+
+      function salvage(kind, x, y) {
+        return { type: 'salvage', kind, x, y, vx: rand(-0.6, 0.6), vy: rand(-0.6, 0.6), dead: false };
+      }
+
+      // ------------------------------------------------------------
+      // State
+      // ------------------------------------------------------------
+      const state = {
+        running: true, entities: [], particles: [], nextAsteroidAt: 0,
+        level: 1, score: 0, best: Number(localStorage.getItem('cfish_best') || 0),
+        lives: 3, keys: new Set(), started: false, tractor: false,
+        dev: { god: !!Config.DEV.startGod, infiniteLives: !!Config.DEV.startInfiniteLives, panel: false }
+      };
+      setText(bestEl, state.best);
+
+      // ------------------------------------------------------------
+      // Input (+ Dev Hotkeys)
+      // ------------------------------------------------------------
+      addEventListener('keydown', (e) => {
+        state.keys.add(e.code);
+        if (e.code === 'Space') e.preventDefault();
+
+        // Dev toggles
+        if (Config.DEV.enabled) {
+          if (e.code === 'Backquote') { state.dev.panel = !state.dev.panel; devPanel.style.display = state.dev.panel ? 'block' : 'none'; }
+          if (e.code === 'KeyG') state.dev.god = !state.dev.god;
+          if (e.code === 'KeyU') state.dev.infiniteLives = !state.dev.infiniteLives;
+          if (e.code === 'Digit1') spawnDrone();
+          if (e.code === 'Digit2') devSpawnSalvageRandom(3);
+          if (e.code === 'Digit3') giveToPlayer('Gun', 1);
+          if (e.code === 'Digit4') giveToPlayer('Thruster', 1);
+          if (e.code === 'KeyK') devClearHostiles();
+          if (e.code === 'BracketLeft') adjustFireRate(+20);
+          if (e.code === 'BracketRight') adjustFireRate(-20);
+        }
+
+        if (e.code === 'KeyF') state.tractor = true;
+        if (e.code === 'KeyP') { state.running = !state.running; if (!state.running) showMsg('<h3 style="margin:0 0 8px">Paused</h3><div>Press <kbd>P</kbd> to resume</div>'); else hideMsg(); }
+        if (e.code === 'KeyR') { reset(); }
+      });
+      addEventListener('keyup', (e) => {
+        state.keys.delete(e.code);
+        if (e.code === 'KeyF') state.tractor = false;
+      });
+
+      // ------------------------------------------------------------
+      // Level / Reset
+      // ------------------------------------------------------------
+      function updatePartHUD(ship) { setText(partCountEl, ship.parts.filter(p => !p.dead).length); }
+      function spawnLevel() {
+        const ship = state.entities.find(e => e.type === 'ship' && e.player) || makeShip(innerWidth / 2, innerHeight / 2, true);
+        state.entities = [ship];
+
+        // Only spawn drones as the wave objective
+        const drones = 1 + Math.floor(state.level / 2);
+        for (let i = 0; i < drones; i++) state.entities.push(makeDrone(state.level));
+
+        ship.invUntil = performance.now() + 2000;
+        setText(levelEl, state.level);
+        updatePartHUD(ship);
+
+        // schedule first sporadic asteroid for this level
+        scheduleNextAsteroid(performance.now());
+      }
+
+      function reset() {
+        state.level = 1; state.score = 0; state.lives = 3; state.particles.length = 0; hideMsg();
+        const ship = makeShip(innerWidth / 2, innerHeight / 2, true);
+        state.entities = [ship];
+        setText(scoreEl, 0); setText(livesEl, 3);
+        spawnLevel();
+      }
+
+      // ------------------------------------------------------------
+      // Graph helpers (connectivity & detachment)
+      // ------------------------------------------------------------
+      const key = (gx, gy) => gx + ',' + gy;
+      function neighbors(gx, gy) { return [[gx + 1, gy], [gx - 1, gy], [gx, gy + 1], [gx, gy - 1]]; }
+
+      function connectivityDetach(ship) { // NEW: run after a part dies
+        const parts = ship.parts.filter(p => !p.dead);
+        const map = new Map(parts.map(p => [key(p.gx, p.gy), p]));
+        if (!map.has('0,0')) return; // (shouldn’t happen)
+        // BFS from core
+        const q = [[0, 0]], seen = new Set(['0,0']);
+        while (q.length) {
+          const [cx, cy] = q.shift();
+          for (const [nx, ny] of neighbors(cx, cy)) {
+            const k = key(nx, ny);
+            if (seen.has(k)) continue;
+            if (map.has(k)) { seen.add(k); q.push([nx, ny]); }
+          }
+        }
+        // Any not in `seen` → detach to salvage (at their current world position)
+        for (const p of parts) {
+          const k = key(p.gx, p.gy);
+          if (!seen.has(k)) {
+            // world position of this part
+            const off = rotXY(p.gx * GRID, p.gy * GRID, ship.angle);
+            const wx = ship.x + off.x, wy = ship.y + off.y;
+            // convert into salvage and remove part
+            p.dead = true;
+            state.entities.push(salvage(p.kind, wx, wy));
+          }
+        }
+        updatePartHUD(ship);
+      }
+
+      // ------------------------------------------------------------
+      // Stats & controls using orientation
+      // ------------------------------------------------------------
+      const countGuns = (s) => s.parts.filter(p => !p.dead && p.kind === 'Gun').length;
+      const thrusters = (s) => s.parts.filter(p => !p.dead && p.kind === 'Thruster');
+
+      function applyThrust(s, pressing) {
+        // Sum local +X vectors of each thruster (rotated by ship angle + part.rot)
+        if (!pressing) return;
+        let ax = 0, ay = 0;
+        for (const t of thrusters(s)) {
+          const a = s.angle + (t.rot || 0);
+          ax += Math.cos(a) * THRUSTER_THRUST;
+          ay += Math.sin(a) * THRUSTER_THRUST;
+        }
+        // Base thrust (core assists a little)
+        ax += Math.cos(s.angle) * BASE_THRUST;
+        ay += Math.sin(s.angle) * BASE_THRUST;
+        s.vx += ax; s.vy += ay;
+      }
+
+      // Dev-aware fire cooldown
+      function effectiveFireCd(entity, gunCount) {
+        const base = clamp(FIRE_CD_BASE - gunCount * 40, FIRE_CD_MIN, FIRE_CD_BASE);
+        const devBoost = Config.DEV.fireRateBoostMs;
+        const forced = entity.forcedCd ?? null;
+        return Math.max(50, (forced ?? (base - devBoost)));
+      }
+
+      function firePerGun(s, t) {
+        const guns = s.parts.filter(p => !p.dead && p.kind === 'Gun');
+        const cd = effectiveFireCd(s, guns.length);
+        if (t < s.fireNext) return;
+        s.fireNext = t + cd;
+        for (const g of guns.slice(0, MAX_BULLETS_PER_GUN ? guns.length : 0)) {
+          const a = s.angle + (g.rot || 0);
+          const muzzle = rotXY(g.gx * GRID, g.gy * GRID, s.angle);
+          const bx = s.x + muzzle.x + Math.cos(a) * 10;
+          const by = s.y + muzzle.y + Math.sin(a) * 10;
+          state.entities.push(bullet(bx, by, a, s.player ? 'player' : 'enemy'));
         }
       }
-    }
 
-    // ===== Bullets =====
-    for(const arr of [bullets, enemyBullets]){
-      for(let i=arr.length-1;i>=0;i--){
-        const b=arr[i];
-        b.x+=b.vx*dt; b.y+=b.vy*dt; b.life-=dt;
-        if(b.life<=0){arr.splice(i,1); continue;}
-      }
-    }
-
-    // ===== Enemy Spawning (capped lower; cadence unchanged) =====
-    spawnTimer -= dt*timeScale;
-    const maxEnemies = MAX_ENEMIES_BASE + Math.floor((player.level-1)/2);
-    if (spawnTimer <= 0 && enemies.length < maxEnemies) {
-      spawnEnemy(threat);
-      spawnTimer = clamp(3.5 + rand(0,1.5) - threat*0.12, 1.6, 5.0);
-    }
-
-    // ===== Enemies: Always aggressive + 3× chase speed =====
-    for(let i=enemies.length-1;i>=0;i--){
-      const e=enemies[i];
-      e.state="aggro";
-
-      // chase faster
-      const ang=angleTo(e, player);
-      const s=(70+e.tier*28)*(e.speedBoost||1)*SPEED_MULT;
-      e.vx += Math.cos(ang)*s*dt; e.vy += Math.sin(ang)*s*dt;
-
-      // fire if guns available
-      e.fireCD -= dt*timeScale;
-      const theirGuns = e.parts.filter(p=>p.type==='gun');
-      if(e.fireCD<=0 && theirGuns.length){
-        const g=choice(theirGuns);
-        if(g){
-          const gx=e.x+g.dx, gy=e.y+g.dy;
-          const a=angleTo({x:gx,y:gy}, player);
-          spawnBullet(gx,gy,a, g.speed*0.95, Math.max(2,g.dmg-1), false);
+      // ------------------------------------------------------------
+      // Combat resolution (per-part damage)
+      // ------------------------------------------------------------
+      function nearestHitPart(ship, bx, by) {
+        let best = null, bestD2 = (PART_RADIUS + 4) * (PART_RADIUS + 4);
+        for (const p of ship.parts) {
+          if (p.dead) continue;
+          const off = rotXY(p.gx * GRID, p.gy * GRID, ship.angle);
+          const px = ship.x + off.x, py = ship.y + off.y;
+          const d2 = dist2(px, py, bx, by);
+          if (d2 < bestD2) { best = p; bestD2 = d2; }
         }
-        e.fireCD = 0.35 + 0.35/Math.max(1,theirGuns.length) + rand(0,0.25);
+        return best;
       }
 
-      // motion & damping
-      e.vx*=0.90; e.vy*=0.90; e.x+=e.vx*dt; e.y+=e.vy*dt;
-      e.angle = Math.atan2(e.vy,e.vx);
+      function damageShipPart(ship, part, amount) {
+        if (!part) return;
 
-      // bullet hits (player → enemy) with safe targeting
-      for(let bi=bullets.length-1;bi>=0;bi--){
-        const b=bullets[bi];
-        if(Math.hypot(b.x-e.x,b.y-e.y) < GRID_SIZE*2){
-          const tgt = choice(e.parts);
-          if (tgt) {
-            tgt.hp -= b.dmg;
-            if (tgt.hp <= 0 && tgt.type !== "core") {
-              const idx = e.parts.indexOf(tgt);
-              if (idx >= 0) e.parts.splice(idx, 1);
+        // Dev: god mode prevents player damage
+        if (ship.player && state.dev.god) return;
+
+        if (part.kind === 'Core') {
+          part.hp -= amount;
+          if (part.hp <= 0) { // core destroyed
+            if (ship.player) killPlayer(ship);
+            else killDrone(ship);
+          }
+        } else {
+          part.hp -= amount;
+          if (part.hp <= 0) {
+            part.dead = true;
+            // particles on break
+            sparklePart(ship, part, 12, 'rgba(200,220,255,.85)');
+            // run connectivity to peel off subgraphs
+            connectivityDetach(ship);
+          }
+          updatePartHUD(ship);
+        }
+      }
+
+      function sparklePart(ship, part, n, color) {
+        const off = rotXY(part.gx * GRID, part.gy * GRID, ship.angle);
+        const x = ship.x + off.x, y = ship.y + off.y;
+        for (let i = 0; i < n; i++) {
+          const a = rand(0, TAU), sp = rand(0.7, 2.2);
+          state.particles.push(particle(x, y, Math.cos(a) * sp, Math.sin(a) * sp, 30 + Math.random() * 20, color));
+        }
+      }
+
+      // ------------------------------------------------------------
+      // Tractor & attach
+      // ------------------------------------------------------------
+      function findAttachSpot(parts) {
+        const occ = new Set(parts.filter(p => !p.dead).map(p => key(p.gx, p.gy)));
+        const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+        const seen = new Set(['0,0']); const q = [[0, 0]]; let guard = 200;
+        while (q.length && guard--) {
+          const [cx, cy] = q.shift();
+          for (const [dx, dy] of dirs) {
+            const nx = cx + dx, ny = cy + dy, k = key(nx, ny);
+            if (seen.has(k)) continue;
+            seen.add(k);
+            if (!occ.has(k)) return { gx: nx, gy: ny };
+            q.push([nx, ny]);
+          }
+        }
+        return { gx: 0, gy: 0 };
+      }
+      function tryAttach(ship, kind) {
+        const spot = findAttachSpot(ship.parts);
+        const part = makePart(kind, spot.gx, spot.gy, 0);
+        ship.parts.push(part);
+        updatePartHUD(ship);
+      }
+
+      // ---- Sporadic asteroid helpers ----
+      const MAX_ASTEROIDS = 4;
+      function spawnAsteroidEdge(size = 3) {
+        // spawn just off-screen on a random edge, drifting inward
+        const edge = Math.floor(Math.random() * 4);
+        let x, y, a;
+        if (edge === 0) { x = -30; y = rand(20, innerHeight - 20); a = 0; }            // left → right
+        else if (edge === 1) { x = innerWidth + 30; y = rand(20, innerHeight - 20); a = Math.PI; } // right → left
+        else if (edge === 2) { x = rand(20, innerWidth - 20); y = -30; a = Math.PI / 2; }            // top → down
+        else { x = rand(20, innerWidth - 20); y = innerHeight + 30; a = -Math.PI / 2; }              // bottom → up
+        const A = asteroid(x, y, size);
+        // bias velocity inward
+        A.vx += Math.cos(a) * rand(0.6, 1.2);
+        A.vy += Math.sin(a) * rand(0.6, 1.2);
+        state.entities.push(A);
+      }
+      function scheduleNextAsteroid(now) {
+        // 5–12s between spawns, scales a bit with level
+        const jitter = rand(5000, 12000);
+        const levelBias = Math.max(0, 2000 - state.level * 100); // slightly faster at higher levels
+        state.nextAsteroidAt = now + Math.max(2500, jitter - levelBias);
+      }
+
+
+      // ------------------------------------------------------------
+      // Game loop
+      // ------------------------------------------------------------
+      function step() { if (state.running) update(); render(); requestAnimationFrame(step); }
+
+      function update() {
+        const t = performance.now();
+        const list = state.entities;
+        const player = list.find(e => e.type === 'ship' && e.player);
+
+        // Start screen
+        if (!state.started) {
+          showMsg(`<h2 style="margin:0 0 8px">Captain-Forever-ish</h2>
+               <div style="opacity:.9;margin-bottom:6px">←/→ rotate, ↑ thrust, <kbd>Space</kbd> fire, <kbd>Shift</kbd> hyperspace</div>
+               <div style="opacity:.9;margin-bottom:6px"><kbd>F</kbd> tractor salvage (auto-attach)</div>
+               <div style="opacity:.9;margin-bottom:6px"><kbd>\`</kbd> for cheats...</div>
+               <div style="opacity:.7;font-size:13px">Shoot parts off enemies. Disconnected chunks detach as salvage.</div>
+               <div style="opacity:.8;margin-top:8px">Press <kbd>Space</kbd> to start</div>`);
+          if (state.keys.has('Space')) { hideMsg(); state.started = true; }
+        }
+
+        // Player controls (rotation now visually applied in drawShip)
+        if (player && !player.dead) {
+          if (state.keys.has('ArrowLeft') || state.keys.has('KeyA')) player.angle -= 0.08;
+          if (state.keys.has('ArrowRight') || state.keys.has('KeyD')) player.angle += 0.08;
+
+          const thrusting = state.keys.has('ArrowUp') || state.keys.has('KeyW');
+          applyThrust(player, thrusting);
+
+          player.vx *= 0.99; player.vy *= 0.99;
+          player.x += player.vx; player.y += player.vy; wrap(player);
+
+          if (state.keys.has('Space')) firePerGun(player, t);
+
+          if (state.keys.has('ShiftLeft') || state.keys.has('ShiftRight')) {
+            state.keys.delete('ShiftLeft'); state.keys.delete('ShiftRight');
+            player.x = rand(0, innerWidth); player.y = rand(0, innerHeight);
+            player.invUntil = t + 1200;
+          }
+        }
+
+        // Asteroids
+        for (const a of list) { if (a.type === 'asteroid') { a.x += a.vx; a.y += a.vy; a.angle += a.spin; wrap(a); } }
+        // ---- Sporadic asteroid spawning (not required to clear wave) ----
+        {
+          const tNow = t;
+          const astCount = state.entities.reduce((n, e) => n + (e.type === 'asteroid' && !e.dead), 0);
+          if (tNow >= state.nextAsteroidAt && astCount < MAX_ASTEROIDS) {
+            // 60% big, 30% medium, 10% small
+            const roll = Math.random();
+            const size = roll < 0.1 ? 1 : roll < 0.4 ? 2 : 3;
+            spawnAsteroidEdge(size);
+            scheduleNextAsteroid(tNow);
+          }
+        }
+
+
+        // Drones
+        for (const d of list) {
+          if (d.type === 'ship' && !d.player && !d.dead) {
+            d.x += d.vx; d.y += d.vy; wrap(d);
+            // simple look & fire
+            const pl = player && !player.dead ? player : null;
+            if (pl) {
+              const desired = Math.atan2(pl.y - d.y, pl.x - d.x);
+              d.angle += (desired - d.angle) * 0.05;
+              firePerGun(d, t);
             }
           }
-          e.hp -= b.dmg;
-          bullets.splice(bi,1); puff(b.x,b.y,"#ffd36e");
-          if(e.hp<=0){ dropLoot(e); enemies.splice(i,1); puff(e.x,e.y,"#ff8db3"); break; }
         }
-      }
 
-      // enemy bullet hits player
-      for(let bi=enemyBullets.length-1;bi>=0;bi--){
-        const b=enemyBullets[bi];
-        if(Math.hypot(b.x-player.x,b.y-player.y) < GRID_SIZE*2){
-          enemyBullets.splice(bi,1); puff(b.x,b.y,"#ffd36e");
-          player.hp -= b.dmg;
-          if(player.hp<=0){ toast("You were destroyed. Press N for new run."); timeScale=0.05; }
+        // Bullets
+        for (const b of list) { if (b.type === 'bullet') { b.x += b.vx; b.y += b.vy; b.range -= Math.hypot(b.vx, b.vy); if (b.range <= 0) b.dead = true; wrap(b); } }
+
+        // Tractor
+        if (player && state.tractor) {
+          let best = null, bestd = TRACTOR_RANGE * TRACTOR_RANGE;
+          for (const s of list) { if (s.type !== 'salvage' || s.dead) continue; const d2 = dist2(player.x, player.y, s.x, s.y); if (d2 < bestd) { best = s; bestd = d2; } }
+          if (best) {
+            const a = Math.atan2(player.y - best.y, player.x - best.x);
+            best.vx += Math.cos(a) * TRACTOR_PULL; best.vy += Math.sin(a) * TRACTOR_PULL;
+            if (bestd < ATTACH_RANGE * ATTACH_RANGE) { tryAttach(player, best.kind); best.dead = true; }
+          }
         }
-      }
-    }
 
-    // ===== Loot pickup =====
-    for(let i=lootCrates.length-1;i>=0;i--){
-      const L=lootCrates[i];
-      L.t+=dt;
-      if(dist(L,player) < 26){
-        const empty = inventory.findIndex(x=>!x);
-        if(empty===-1){ player.loot++; toast("Storage full: converted to scrap (+1)"); }
-        else { inventory[empty]=L.part; toast(`Picked ${L.part.type.toUpperCase()} ${PartTiers[L.part.tier-1].name}`); renderInventory(); }
-        lootCrates.splice(i,1);
-      }
-    }
+        // Salvage drift
+        for (const s of list) { if (s.type === 'salvage') { s.x += s.vx; s.y += s.vy; s.vx *= 0.995; s.vy *= 0.995; wrap(s); } }
 
-    // ===== Build mode placement/removal =====
-    if(buildMode){
-      const sel=inventory[invSel];
-      if(sel){
-        const sdx=snap(mouse.worldX - player.x), sdy=snap(mouse.worldY - player.y);
-        sel._preview={dx:sdx,dy:sdy};
-        if(keys['r']){ sel.rot=(sel.rot+1)%4; keys['r']=false; }
-        if(mouse.down){
-          if(validAttach(sdx,sdy)){
-            const placed=makePart(sel.type, sel.tier, sel.rot);
-            placed.dx=sdx; placed.dy=sdy;
-            player.parts.push(placed);
-            inventory[invSel]=null; renderInventory(); recalcPlayerStats(); puff(player.x+sdx, player.y+sdy, tierColor(placed.tier));
-          } else {
-            toast("Invalid placement");
+        // Collisions (bullets → asteroids)
+        for (const a of list) {
+          if (a.type === 'asteroid' && !a.dead) {
+            for (const b of list) {
+              if (b.type !== 'bullet' || b.dead || b.owner !== 'player') continue;
+              const rr = a.r + b.r; if (dist2(a.x, a.y, b.x, b.y) < rr * rr) { b.dead = true; explodeAsteroid(a); }
+            }
+          }
+        }
+
+        // Collisions (player bullets → drones parts)
+        for (const d of list) {
+          if (d.type === 'ship' && !d.player && !d.dead) {
+            for (const b of list) {
+              if (b.type !== 'bullet' || b.dead || b.owner !== 'player') continue;
+              // quick coarse test
+              const rr = 16 + b.r; if (dist2(d.x, d.y, b.x, b.y) > (rr + GRID * 3) * (rr + GRID * 3)) continue;
+              const hit = nearestHitPart(d, b.x, b.y);
+              if (hit) {
+                // confirm within part radius
+                const off = rotXY(hit.gx * GRID, hit.gy * GRID, d.angle);
+                const px = d.x + off.x, py = d.y + off.y;
+                if (dist2(px, py, b.x, b.y) <= (PART_RADIUS + b.r) * (PART_RADIUS + b.r)) {
+                  b.dead = true; damageShipPart(d, hit, BULLET_DMG);
+                }
+              }
+            }
+          }
+        }
+
+        // Collisions (enemy bullets → player parts)
+        if (player && !player.dead && t > player.invUntil) {
+          for (const b of list) {
+            if (b.type !== 'bullet' || b.dead || b.owner !== 'enemy') continue;
+            const hit = nearestHitPart(player, b.x, b.y);
+            if (hit) {
+              const off = rotXY(hit.gx * GRID, hit.gy * GRID, player.angle);
+              const px = player.x + off.x, py = player.y + off.y;
+              if (dist2(px, py, b.x, b.y) <= (PART_RADIUS + b.r) * (PART_RADIUS + b.r)) {
+                b.dead = true; damageShipPart(player, hit, BULLET_DMG);
+                // If player core destroyed, damageShipPart handles kill
+              }
+            }
+          }
+        }
+
+        // Player vs asteroid (core-ish collision)
+        if (player && !player.dead && t > player.invUntil) {
+          for (const a of list) {
+            if (a.type !== 'asteroid' || a.dead) continue;
+            if (dist2(a.x, a.y, player.x, player.y) < (a.r + 12) * (a.r + 12)) { killPlayer(player); break; }
+          }
+        }
+
+        // Particles update
+        for (const p of state.particles) { p.x += p.vx; p.y += p.vy; p.life--; wrap(p); }
+        for (let i = state.particles.length - 1; i >= 0; i--) if (state.particles[i].life <= 0) state.particles.splice(i, 1);
+
+        // Cleanup
+        for (let i = list.length - 1; i >= 0; i--) if (list[i].dead) list.splice(i, 1);
+
+        // Progression
+        // ---- Progression (drones only) ----
+        const hasDrone = list.some(e => e.type === 'ship' && !e.player && !e.dead);
+        if (!hasDrone) { state.level++; spawnLevel(); }
+
+      }
+
+      // ------------------------------------------------------------
+      // Events
+      // ------------------------------------------------------------
+      function explodeAsteroid(a) {
+        a.dead = true;
+        const add = a.size === 3 ? 20 : a.size === 2 ? 50 : 100; state.score += add; pushBest();
+        for (let i = 0; i < 16; i++) {
+          const ang = rand(0, TAU), sp = rand(0.7, 2.4);
+          state.particles.push(particle(a.x, a.y, Math.cos(ang) * sp, Math.sin(ang) * sp, 40 + Math.random() * 20, 'rgba(255,255,255,.9)'));
+        }
+        if (a.size > 1) {
+          for (let i = 0; i < 2; i++) {
+            const c = asteroid(a.x, a.y, a.size - 1); const ang = rand(0, TAU), sp = rand(0.5, 1.2);
+            c.vx += Math.cos(ang) * sp; c.vy += Math.sin(ang) * sp; state.entities.push(c);
           }
         }
       }
-      if(keys['x']){
-        const p=partUnderCursor();
-        if(p && p.type!=="core"){
-          const empty = inventory.findIndex(x=>!x);
-          if(empty===-1){ player.loot++; toast("Removed part → scrap (+1)"); }
-          else { const back=makePart(p.type,p.tier,p.rot); inventory[empty]=back; renderInventory(); }
-          const idx=player.parts.indexOf(p); if(idx>=0) player.parts.splice(idx,1);
-          recalcPlayerStats(); puff(player.x+p.dx, player.y+p.dy, "#98a2ad");
+
+      function killDrone(d) {
+        d.dead = true; state.score += 140; pushBest();
+        for (let i = 0; i < 26; i++) {
+          const ang = rand(0, TAU), sp = rand(0.7, 2.6);
+          state.particles.push(particle(d.x, d.y, Math.cos(ang) * sp, Math.sin(ang) * sp, 42 + Math.random() * 22, 'rgba(87,230,193,.9)'));
         }
-        keys['x']=false;
+        // drop 1–2 salvage (random types) + dev extraDrops
+        const drops = 1 + (Math.random() < 0.4 ? 1 : 0) + (Config.DEV.extraDrops || 0);
+        const bag = ['Girder', 'Thruster', 'Gun'];
+        for (let i = 0; i < drops; i++) {
+          const kind = bag[Math.floor(Math.random() * bag.length)];
+          state.entities.push(salvage(kind, d.x + rand(-6, 6), d.y + rand(-6, 6)));
+        }
       }
-    }
 
-    // ===== Particles =====
-    for(let i=particles.length-1;i>=0;i--){
-      const p=particles[i]; p.t+=dt; p.x+=p.vx*dt; p.y+=p.vy*dt; if(p.t>p.life) particles.splice(i,1);
-    }
+      function killPlayer(player) {
+        player.dead = true;
 
-    // ===== Stats/UI =====
-    statHP.textContent=`HP ${Math.round(player.hp)}/${player.maxHP}`;
-    statParts.textContent=`Parts ${player.parts.length-1}`;
-    statTier.textContent=`Threat T${clamp(Math.floor((threat+1)/2),1,6)}`;
-    statLoot.textContent=`Loot ${player.loot}`;
-    statMode.textContent=`Mode: ${buildMode?'Build':'Combat'}`;
-    xpFill.style.width = `${clamp(player.xp,0,100)}%`;
-  }
+        // Dev: infinite lives keeps you going (no decrement)
+        if (!state.dev.infiniteLives) {
+          state.lives--; setText(livesEl, state.lives);
+        }
 
-  function draw(){
-    ctx.clearRect(0,0,W,H);
-
-    // starfield parallax
-    const stars=120;
-    for(let i=0;i<stars;i++){
-      const sx=((i*431)%3000 - ((cam.x*0.3)%3000));
-      const sy=((i*947)%3000 - ((cam.y*0.3)%3000));
-      const p=worldToScreen(sx,sy);
-      ctx.globalAlpha=0.4; ctx.fillStyle="#1f2a3c"; ctx.fillRect(p.x,p.y,2,2);
-    }
-    ctx.globalAlpha=1;
-
-    function drawPart(px,py,part,owner="player"){
-      const scr=worldToScreen(px,py);
-      const size=(TypeInfo[part.type].size)*GRID_SIZE-6;
-      ctx.save();
-      ctx.translate(scr.x,scr.y);
-      ctx.rotate(part.rot*(Math.PI/2));
-      ctx.fillStyle = owner==="player" ? "#121a28" : "#20142a";
-      ctx.strokeStyle = tierColor(part.tier);
-      ctx.lineWidth=2;
-      ctx.beginPath();
-      ctx.roundRect(-size/2,-size/2,size,size,4);
-      ctx.fill(); ctx.stroke();
-      ctx.fillStyle=tierColor(part.tier);
-      ctx.globalAlpha=0.9;
-      const sym = TypeInfo[part.type].symbol;
-      ctx.font="bold 12px system-ui"; ctx.textAlign="center"; ctx.textBaseline="middle";
-      ctx.fillText(sym,0,0);
-      ctx.globalAlpha=1;
-      const r=(size/2)+3;
-      ctx.beginPath(); ctx.arc(0,0,r, -Math.PI*0.5, -Math.PI*0.5 + (Math.max(0,part.hp)/part.maxHP)*Math.PI*2);
-      ctx.strokeStyle="#76ffd9"; ctx.lineWidth=2; ctx.stroke();
-      ctx.restore();
-    }
-
-    // loot crates
-    for(const L of lootCrates){
-      const scr=worldToScreen(L.x,L.y);
-      const t=(Math.sin(L.t*4)+1)*0.5;
-      ctx.save();
-      ctx.translate(scr.x,scr.y);
-      ctx.fillStyle=tierColor(L.part.tier);
-      ctx.globalAlpha=0.85;
-      ctx.beginPath(); ctx.roundRect(-10,-10,20,20,4); ctx.fill();
-      ctx.globalAlpha=1; ctx.fillStyle="#0b0f17"; ctx.font="bold 11px system-ui"; ctx.textAlign="center"; ctx.textBaseline="middle";
-      ctx.fillText(TypeInfo[L.part.type].symbol,0,0);
-      ctx.restore();
-      ctx.beginPath(); ctx.arc(scr.x,scr.y, 16+6*t, 0, Math.PI*2);
-      ctx.strokeStyle=tierColor(L.part.tier); ctx.globalAlpha=0.18; ctx.lineWidth=4; ctx.stroke(); ctx.globalAlpha=1;
-    }
-
-    // enemies
-    for(const e of enemies){
-      for(const p of e.parts) drawPart(e.x+p.dx, e.y+p.dy, p,"enemy");
-      const sc=worldToScreen(e.x,e.y);
-      ctx.beginPath(); ctx.arc(sc.x,sc.y, GRID_SIZE*1.8, 0, Math.PI*2);
-      ctx.strokeStyle="#ff8db3aa"; ctx.lineWidth=1; ctx.stroke();
-    }
-
-    // player
-    for(const p of player.parts) drawPart(player.x+p.dx, player.y+p.dy, p,"player");
-    const ps=worldToScreen(player.x,player.y);
-    ctx.beginPath();
-    ctx.moveTo(ps.x,ps.y);
-    ctx.lineTo(ps.x+Math.cos(player.angle)*18, ps.y+Math.sin(player.angle)*18);
-    ctx.strokeStyle="#57e6c1"; ctx.lineWidth=2; ctx.stroke();
-
-    // bullets
-    function drawBullets(arr, col){
-      ctx.fillStyle=col;
-      for(const b of arr){
-        const s=worldToScreen(b.x,b.y);
-        ctx.beginPath(); ctx.arc(s.x,s.y,2.4,0,Math.PI*2); ctx.fill();
+        for (let i = 0; i < 36; i++) {
+          const ang = rand(0, TAU), sp = rand(0.7, 2.8);
+          state.particles.push(particle(player.x, player.y, Math.cos(ang) * sp, Math.sin(ang) * sp, 48 + Math.random() * 24, 'rgba(255,107,107,.95)'));
+        }
+        if (state.lives < 0 && !state.dev.infiniteLives) {
+          state.running = false;
+          showMsg(`<h3 style="margin:0 0 8px">Game Over</h3>
+               <div style="margin-bottom:8px">Score ${state.score} · Best ${state.best}</div>
+               <div><kbd>R</kbd> to restart</div>`);
+        } else {
+          setTimeout(() => { const s = makeShip(innerWidth / 2, innerHeight / 2, true); state.entities.push(s); s.invUntil = performance.now() + 1600; updatePartHUD(s); }, 900);
+        }
       }
-    }
-    drawBullets(bullets, "#76ffd9");
-    drawBullets(enemyBullets, "#ffd36e");
 
-    // particles
-    for(const p of particles){
-      const s=worldToScreen(p.x,p.y);
-      const a=1-p.t/p.life;
-      ctx.globalAlpha=clamp(a,0,1);
-      ctx.fillStyle=p.color;
-      ctx.beginPath(); ctx.arc(s.x,s.y, 2+4*a, 0, Math.PI*2); ctx.fill();
-      ctx.globalAlpha=1;
-    }
+      function pushBest() { setText(scoreEl, state.score); if (state.score > state.best) { state.best = state.score; setText(bestEl, state.best); localStorage.setItem('cfish_best', state.best); } }
 
-    // build preview + highlight
-    if(buildMode){
-      const sel=inventory[invSel];
-      if(sel && sel._preview){
-        const pr=sel._preview;
-        const px=player.x+pr.dx, py=player.y+pr.dy;
-        const scr=worldToScreen(px,py);
+      // ------------------------------------------------------------
+      // Render (ship now rotates visually)
+      // ------------------------------------------------------------
+      function render() {
+        ctx.clearRect(0, 0, innerWidth, innerHeight);
+
+        // starfield
+        ctx.save(); ctx.globalAlpha = .15;
+        for (let i = 0; i < 80; i++) { const x = (i * 137.5 + performance.now() * 0.01) % innerWidth, y = (i * 91.7 + i * 13) % innerHeight; ctx.fillRect(x, y, 1, 1); }
+        ctx.restore();
+
+        // particles
+        for (const p of state.particles) { ctx.globalAlpha = clamp(p.life / 60, 0, 1); ctx.fillStyle = p.color || 'white'; ctx.fillRect(p.x, p.y, 2, 2); ctx.globalAlpha = 1; }
+
+        for (const e of state.entities) {
+          switch (e.type) {
+            case 'ship': drawShip(e); if (e.player) drawShipGrid(e); break;
+            case 'asteroid': drawAsteroid(e); break;
+            case 'bullet': drawBullet(e); break;
+            case 'salvage': drawSalvage(e); break;
+          }
+        }
+      }
+
+      function drawShip(s) {
         ctx.save();
-        ctx.translate(scr.x,scr.y);
-        ctx.rotate(sel.rot*(Math.PI/2));
-        ctx.globalAlpha= validAttach(pr.dx,pr.dy) ? 0.6 : 0.25;
-        ctx.fillStyle=tierColor(sel.tier);
-        const size=(TypeInfo[sel.type].size)*GRID_SIZE-4;
-        ctx.beginPath(); ctx.roundRect(-size/2,-size/2,size,size,4); ctx.fill();
+        ctx.translate(s.x, s.y);
+        ctx.rotate(s.angle); // rotate entire ship to face direction
+
+        // invincibility blink (affects whole ship)
+        const inv = performance.now() < s.invUntil;
+        if (inv && Math.floor(performance.now() / 120) % 2 === 0) ctx.globalAlpha = 0.35;
+
+        // Draw parts in local space (they inherit rotation above)
+        for (const p of s.parts) {
+          if (p.dead) continue;
+          ctx.save();
+          ctx.translate(p.gx * GRID, p.gy * GRID);
+          ctx.rotate(p.rot || 0);
+          PartDefs[p.kind].draw(ctx);
+          ctx.restore();
+        }
+
+        // Facing indicator (nose line) in rotated space
+        ctx.strokeStyle = 'rgba(231,236,239,.5)'; ctx.beginPath(); ctx.moveTo(12, 0); ctx.lineTo(20, 0); ctx.stroke();
         ctx.restore();
       }
-      const hov=partUnderCursor();
-      if(hov && hov.type!=="core"){
-        const s=worldToScreen(player.x+hov.dx, player.y+hov.dy);
-        ctx.beginPath(); ctx.roundRect(s.x-GRID_SIZE/1.2, s.y-GRID_SIZE/1.2, GRID_SIZE*1.6, GRID_SIZE*1.6, 6);
-        ctx.strokeStyle="#ff8db3"; ctx.setLineDash([4,3]); ctx.lineWidth=2; ctx.stroke(); ctx.setLineDash([]);
+
+      function drawShipGrid(s) {
+        // subtle slots around ship (in ship space)
+        ctx.save(); ctx.translate(s.x, s.y); ctx.rotate(s.angle); ctx.globalAlpha = .18;
+        const R = 3;
+        for (let gx = -R; gx <= R; gx++) {
+          for (let gy = -R; gy <= R; gy++) {
+            if (gx === 0 && gy === 0) continue;
+            if (Math.abs(gx) + Math.abs(gy) <= 2) { ctx.fillStyle = '#e7ecef'; ctx.fillRect(gx * GRID - 1, gy * GRID - 1, 2, 2); }
+          }
+        }
+        ctx.restore();
       }
-    }
 
-    // crosshair
-    ctx.beginPath(); ctx.arc(mouse.x,mouse.y,6,0,Math.PI*2); ctx.strokeStyle="#98a2ad"; ctx.lineWidth=1; ctx.stroke();
-  }
+      function drawAsteroid(a) {
+        ctx.save(); ctx.translate(a.x, a.y); ctx.rotate(a.angle);
+        ctx.strokeStyle = 'rgba(231,236,239,.95)'; ctx.lineWidth = 2; ctx.beginPath();
+        const n = a.irregular.length, R = a.r;
+        for (let i = 0; i < n; i++) { const ang = (i / n) * TAU, rr = R * a.irregular[i], x = Math.cos(ang) * rr, y = Math.sin(ang) * rr; if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); }
+        ctx.closePath(); ctx.stroke(); ctx.restore();
+      }
 
-  function loop(){
-    const t=now(); let dt=t-last; last=t; dt*=timeScale; dt=clamp(dt,0,0.05);
-    update(dt); draw();
-    requestAnimationFrame(loop);
-  }
+      function drawBullet(b) { ctx.beginPath(); ctx.arc(b.x, b.y, 2, 0, TAU); ctx.fillStyle = b.owner === 'player' ? '#57e6c1' : '#ff6b6b'; ctx.fill(); }
+      function drawSalvage(sv) { ctx.save(); ctx.translate(sv.x, sv.y); ctx.globalAlpha = .95; ctx.scale(0.9, 0.9); PartDefs[sv.kind].draw(ctx); ctx.restore(); }
 
-  // ======= Bootstrap =======
-  (function bootstrap(){
-    const g=makePart("gun",1,0); g.dx=GRID_SIZE; g.dy=0; player.parts.push(g);
-    const t=makePart("thruster",1,0); t.dx=0; t.dy=GRID_SIZE; player.parts.push(t);
-    inventory[0]=makePart("hull",1,0);
-    inventory[1]=makePart("gun",1,0);
-    inventory[2]=makePart("thruster",1,0);
-    renderInventory(); recalcPlayerStats();
-    helpEl.style.display='block';
-    for(let i=0;i<2;i++) spawnEnemy(1); // fewer at start too
-    toast("3× speed & half enemy cap — left click to shoot");
-    loop();
-  })();
-})();
-</script>
+      // ------------------------------------------------------------
+      // Dev Helpers & API
+      // ------------------------------------------------------------
+      function playerEntity() { return state.entities.find(e => e.type === 'ship' && e.player); }
+      function giveToPlayer(kind, n = 1) { const p = playerEntity(); if (!p) return; for (let i = 0; i < n; i++) tryAttach(p, kind); }
+      function devSpawnSalvageRandom(n = 3) {
+        const p = playerEntity(); if (!p) return; const bag = ['Girder', 'Thruster', 'Gun'];
+        for (let i = 0; i < n; i++) { const k = bag[Math.floor(Math.random() * bag.length)]; state.entities.push(salvage(k, p.x + rand(-40, 40), p.y + rand(-40, 40))); }
+      }
+      function devClearHostiles() { state.entities = state.entities.filter(e => (e.type === 'ship' && e.player) || e.type === 'salvage'); }
+      function spawnDrone(n = 1) { for (let i = 0; i < n; i++) state.entities.push(makeDrone(state.level)); }
+      function spawnAsteroidSize(size, n = 1) {
+        for (let i = 0; i < n; i++) { const x = rand(40, innerWidth - 40), y = rand(40, innerHeight - 40); state.entities.push(asteroid(x, y, size)); }
+      }
+      function setLevel(n) { state.level = Math.max(1, Math.floor(n || 1)); spawnLevel(); }
+      function overrideFireRate(ms) { const p = playerEntity(); if (!p) return; p.forcedCd = Math.max(50, Math.floor(ms)); }
+      function adjustFireRate(delta) {
+        const p = playerEntity(); if (!p) return;
+        const current = p.forcedCd ?? effectiveFireCd(p, countGuns(p));
+        p.forcedCd = Math.max(50, current + delta);
+      }
+      function dump() {
+        const p = playerEntity();
+        console.log({
+          level: state.level, score: state.score, lives: state.lives,
+          dev: state.dev, fireCd: p?.forcedCd,
+          parts: p?.parts?.filter(x => !x.dead).map(q => q.kind)
+        });
+      }
+
+      window.dev = {
+        god: (on = true) => { state.dev.god = !!on; return state.dev.god; },
+        infiniteLives: (on = true) => { state.dev.infiniteLives = !!on; return state.dev.infiniteLives; },
+        give: (kind, n = 1) => giveToPlayer(kind, n),
+        salvage: (kind, n = 1) => { const p = playerEntity(); if (!p) return; for (let i = 0; i < n; i++) state.entities.push(salvage(kind, p.x + rand(-40, 40), p.y + rand(-40, 40))); },
+        spawn: (type, n = 1) => {
+          if (type === 'drone') spawnDrone(n);
+          else if (type === 'asteroidL') spawnAsteroidSize(3, n);
+          else if (type === 'asteroidM') spawnAsteroidSize(2, n);
+          else if (type === 'asteroidS') spawnAsteroidSize(1, n);
+        },
+        level: (n) => setLevel(n),
+        clear: () => devClearHostiles(),
+        rate: (ms) => overrideFireRate(ms),
+        dump: () => dump()
+      };
+
+      // ------------------------------------------------------------
+      // Boot
+      // ------------------------------------------------------------
+      reset(); step();
+
+    })();
+  </script>
 </body>
+
 </html>
