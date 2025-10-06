@@ -670,7 +670,18 @@
           nextType = take();
           drawPreview(nextCtx, nextType);
           const mat = P[t].r[0];
-          current = { type: t, rot: 0, x: ((COLS / 2) | 0) - ((mat[0].length / 2) | 0), y: -1 };
+          current = { 
+            type: t, 
+            rot: 0, 
+            x: ((COLS / 2) | 0) - ((mat[0].length / 2) | 0), 
+            y: -1,
+            drawX: 0, targetX: 0,
+            drawY: 0, targetY: 0
+          };
+          current.drawX = current.x * SIZE;
+          current.targetX = current.x * SIZE;
+          current.drawY = current.y * SIZE;
+          current.targetY = current.y * SIZE;
           if (collision(grid, current)) gameOver();
           canHold = true;
         }
@@ -681,6 +692,8 @@
             if (collision(grid, current)) {
               current.y--;
               lockPiece();
+            } else {
+              current.targetY = current.y * SIZE;
             }
           }
         }
@@ -697,25 +710,46 @@
               fall++;
             }
             score += fall * 2;
+            current.targetY = current.y * SIZE; // sync to new final position
             lockPiece();
           }
         }
 
+
         function move(dx) {
           current.x += dx;
-          if (collision(grid, current)) current.x -= dx;
+          if (collision(grid, current)) {
+            current.x -= dx;
+          } else {
+            // update target in pixels (SIZE = 24 px per cell)
+            current.targetX = current.x * SIZE;
+          }
         }
 
         function rotate() {
-          const prev = current.rot;
-          current.rot = (current.rot + 1) % P[current.type].r.length;
-          const kicks = [0,1,-1,2,-2];
-          for (const k of kicks) {
-            current.x += k;
-            if (!collision(grid, current)) return;
-            current.x -= k;
+          if (!noGameInputPeriod()) {
+            const oldRot = current.rot;
+            current.rot = (current.rot + 1) % 4;
+
+            if (collision(grid, current)) {
+              // Try to push piece back inside bounds
+              let kicked = false;
+              for (let offset of [-1, 1, -2, 2]) {
+                current.x += offset;
+                if (!collision(grid, current)) {
+                  kicked = true;
+                  break;
+                }
+                current.x -= offset;
+              }
+              if (!kicked) {
+                // rotation not possible, revert
+                current.rot = oldRot;
+              }
+            }
+            current.targetX = current.x * SIZE;
+            current.targetY = current.y * SIZE;
           }
-          current.rot = prev;
         }
 
         function rotateCounter() {
@@ -789,12 +823,21 @@
               if (collision(grid, ghost)) { gy--; break; }
             }
             const col = P[current.type].c, m = matFor(current);
+            // Ghost piece
             for (let y = 0; y < m.length; y++)
               for (let x = 0; x < m[y].length; x++)
                 if (m[y][x]) drawCell(current.x + x, gy + y, col, 0.25);
-            for (let y = 0; y < m.length; y++)
-              for (let x = 0; x < m[y].length; x++)
-                if (m[y][x]) drawCell(current.x + x, current.y + y, col, 1);
+            // Real piece
+            for (let y = 0; y < m.length; y++) {
+              for (let x = 0; x < m[y].length; x++) {
+                if (m[y][x]) {
+                  const px = current.drawX + x * SIZE;
+                  const py = current.drawY + y * SIZE;
+                  ctx.fillStyle = col;
+                  ctx.fillRect(px, py, SIZE - 1, SIZE - 1);
+                }
+              }
+            }
           }
 
           if (clearing) {
@@ -855,6 +898,8 @@
 
         function loop(t = 0) {
           const dt = t - lastTime; lastTime = t;
+          // smoothing factor (higher = snappier)
+          const SMOOTH_SPEED = 0.25;
 
           // Horizontal auto-repeat
           const now = t;
@@ -876,6 +921,11 @@
           } else if (!paused && !over) {
             dropCounter += dt;
             if (dropCounter > dropInterval) { dropCounter = 0; softDrop(); }
+          }
+
+          if (current) {
+            current.drawX += (current.targetX - current.drawX) * SMOOTH_SPEED;
+            current.drawY += (current.targetY - current.drawY) * SMOOTH_SPEED;
           }
           draw();
           requestAnimationFrame(loop);
