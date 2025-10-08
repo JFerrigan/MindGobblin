@@ -512,6 +512,7 @@
         let isTextEntry = false;
         let isGameOverScoreboard = false;
         let playerPlacement = null;
+        let isScoreboardOpen = false;
 
         // UI refs
         const $score = document.getElementById("score");
@@ -669,6 +670,12 @@
           const t = nextType;
           nextType = take();
           drawPreview(nextCtx, nextType);
+          setCurrent(t)
+          if (collision(grid, current)) gameOver();
+          canHold = true;
+        }
+
+        function setCurrent(t) {
           const mat = P[t].r[0];
           current = { 
             type: t, 
@@ -682,8 +689,6 @@
           current.targetX = current.x * SIZE;
           current.drawY = current.y * SIZE;
           current.targetY = current.y * SIZE;
-          if (collision(grid, current)) gameOver();
-          canHold = true;
         }
 
         function softDrop() {
@@ -774,7 +779,7 @@
             const t = held;
             held = current.type;
             drawPreview(holdCtx, held);
-            current = { type: t, rot: 0, x: ((COLS / 2) | 0) - 2, y: -1 };
+            setCurrent(t)
             if (collision(grid, current)) gameOver();
           }
           canHold = false;
@@ -894,6 +899,7 @@
           playerNameInput.style.display = "none";
           menuContent.style.display = "none";
           controlsContent.style.display = "none";
+          isScoreboardOpen = true;
         }
 
         function loop(t = 0) {
@@ -996,7 +1002,12 @@
         });
 
         // Toggle menu with 'P' key (separate listener so it always works)
+        // Close scoreboared, if open, with Enter
         window.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") {
+            if (isTextEntry) setPlayerName();
+            if (isScoreboardOpen) closeScoreboard();
+          }
           if (isTextEntry) return;
           if (e.key === "p" || e.key === "P") {
             e.preventDefault();
@@ -1098,6 +1109,29 @@
           if (menuModal.style.display === "flex") closeMenu(); else openMenu();
         }
 
+        function setPlayerName() {
+          playerName = sanitizePlayerName(playerNameField.value);
+          playerNameInput.style.display = "none";
+          if (initialGameLoad) {
+            closeMenu()
+            initialGameLoad = false;
+          } else {
+            menuContent.style.display = "block";
+          }
+          isTextEntry = false;
+        }
+
+        function closeScoreboard() {
+          scoreboard.style.display = "none";
+          if (isGameOverScoreboard) {
+            closeMenu()
+            isGameOverScoreboard = false;
+          } else {
+            menuContent.style.display = "block";
+          }
+          isScoreboardOpen = false;
+        }
+
         // Menu actions
         menuBtn.addEventListener("click", openMenu);
         menuModal.addEventListener("click", (e) => { if (e.target === menuModal) closeMenu(); });
@@ -1111,19 +1145,14 @@
         });
 
         menuScoreboardBtn.addEventListener("click", () => {
+          isScoreboardOpen = true;
           loadScores();
           menuContent.style.display = "none";
           scoreboard.style.display = "block";
         });
 
         scoreboardBackBtn.addEventListener("click", () => {
-          scoreboard.style.display = "none";
-          if (isGameOverScoreboard) {
-            closeMenu()
-            isGameOverScoreboard = false;
-          } else {
-            menuContent.style.display = "block";
-          }
+          closeScoreboard();
         });
 
         menuControlsBtn.addEventListener("click", () => {
@@ -1145,15 +1174,7 @@
         });
 
         playerNameConfirmBtn.addEventListener("click", () => {
-          isTextEntry = false;
-          playerName = sanitizePlayerName(playerNameField.value);
-          playerNameInput.style.display = "none";
-          if (initialGameLoad) {
-            closeMenu()
-            initialGameLoad = false;
-          } else {
-            menuContent.style.display = "block";
-          }
+          setPlayerName();
         });
 
         // Hook up hold button
