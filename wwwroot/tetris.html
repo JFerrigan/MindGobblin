@@ -285,7 +285,7 @@
         <div class="panel-section">LVL: <span id="level">1</span></div>
         <div class="panel-section">Lines: <span id="lines">0</span></div>
 
-        <div id="version">v1.03</div>
+        <div id="version">v1.04</div>
       </div>
     </div>
 
@@ -366,13 +366,11 @@
       (function () {
         // --- Constants / DOM
         const COLS = 10, ROWS = 20, SIZE = 24;
-        const canvas = document.getElementById("game");
-        const ctx = canvas.getContext("2d");
-        const nextCtx = document.getElementById("next").getContext("2d");
-        const holdCtx = document.getElementById("hold").getContext("2d");
         const comboInterval = 2000; // in ms
+        const lockDelay = 500; // milliseconds
+        const maxLockResets = 15; // limit per piece
 
-        // Tetromino definitions (same as before)
+        // Tetromino definitions
         const P = {
           I: { c: "#22e6ff", r: [
             [
@@ -460,6 +458,16 @@
               [0,1,0],
               [0,1,1],
               [0,0,1]
+            ],
+            [
+              [0,0,0],
+              [0,1,1],
+              [1,1,0]
+            ],
+            [
+              [1,0,0],
+              [1,1,0],
+              [0,1,0]
             ]
           ]},
           T: { c: "#b28bff", r: [
@@ -494,12 +502,77 @@
               [0,0,1],
               [0,1,1],
               [0,1,0]
+            ],
+            [
+              [0,0,0],
+              [1,1,0],
+              [0,1,1]
+            ],
+            [
+              [0,1,0],
+              [1,1,0],
+              [1,0,0]
             ]
           ]}
         };
         const TYPES = Object.keys(P);
 
-        // --- State
+        // --- Super Rotation System (SRS) Kick Tables
+        // Kick data per Tetris Guideline (official)
+        // Source: https://tetris.wiki/Super_Rotation_System
+        // Due to the y-axis being positive going down, we had to invert the y test values.
+        const SRS_KICKS = {
+          // For J, L, S, T, Z pieces
+          JLSTZ: {
+            // [from][to] = [[x, y], ...]
+            0: {
+              1: [[0,0], [-1,0], [-1,-1], [0,2], [-1,2]],  // 0 >> R
+              3: [[0,0], [1,0], [1,-1], [0,2], [1,2]]      // 0 >> L
+            },
+            1: {
+              0: [[0,0], [1,0], [1,1], [0,-2], [1,-2]],    // R >> 0
+              2: [[0,0], [1,0], [1,1], [0,-2], [1,-2]]     // R >> 2
+            },
+            2: {
+              1: [[0,0], [-1,0], [-1,-1], [0,2], [-1,2]],  // 2 >> R
+              3: [[0,0], [1,0], [1,-1], [0,2], [1,2]]      // 2 >> L
+            },
+            3: {
+              0: [[0,0], [-1,0], [-1,1], [0,-2], [-1,-2]], // L >> 0
+              2: [[0,0], [-1,0], [-1,1], [0,-2], [-1,-2]]  // L >> 2
+            }
+          },
+
+          // For the I piece
+          I: {
+            0: {
+              1: [[0,0], [-2,0], [1,0], [-2,1], [1,-2]], // 0 >> R
+              3: [[0,0], [-1,0], [2,0], [-1,-2], [2,1]]  // 0 >> L
+            },
+            1: {
+              0: [[0,0], [2,0], [-1,0], [2,-1], [-1,2]], // R >> 0
+              2: [[0,0], [-1,0], [2,0], [-1,-2], [2,1]]  // R >> 2
+            },
+            2: {
+              1: [[0,0], [1,0], [-2,0], [1,2], [-2,-1]], // 2 >> R
+              3: [[0,0], [2,0], [-1,0], [2,-1], [-1,2]]  // 2 >> L
+            },
+            3: {
+              0: [[0,0], [1,0], [-2,0], [1,2], [-2,-1]], // L >> 0
+              2: [[0,0], [-2,0], [1,0], [-2,1], [1,-2]]  // L >> 2
+            }
+          },
+
+          // The O piece doesn’t use kicks (its origin is center)
+          O: {
+            0: { 1: [[0,0]], 3: [[0,0]] },
+            1: { 0: [[0,0]], 2: [[0,0]] },
+            2: { 1: [[0,0]], 3: [[0,0]] },
+            3: { 0: [[0,0]], 2: [[0,0]] }
+          }
+        };
+
+        // --- Initial State
         let grid, current, nextType = null, bag = [], held = null, canHold = true;
         let dropInterval = 900, dropCounter = 0, lastTime = 0;
         let paused = true, over = false, started = false;
@@ -513,8 +586,16 @@
         let isGameOverScoreboard = false;
         let playerPlacement = null;
         let isScoreboardOpen = false;
+        let lockTimer = 0; // time spent grounded
+        let grounded = false; // piece is resting on the stack
+        let lockResetCount = 0; // how many times player has reset the lock timer
+        let rowLockDelay = -1; // row # around which piece lock delay intiated
 
-        // UI refs
+        // --- UI refs
+        const canvas = document.getElementById("game");
+        const ctx = canvas.getContext("2d");
+        const nextCtx = document.getElementById("next").getContext("2d");
+        const holdCtx = document.getElementById("hold").getContext("2d");
         const $score = document.getElementById("score");
         const $lines = document.getElementById("lines");
         const $level = document.getElementById("level");
@@ -524,8 +605,21 @@
         const playerNameInput = document.getElementById("playerNameInput");
         const playerNameField = document.getElementById("playerNameField");
         const playerNameConfirmBtn = document.getElementById("playerNameConfirmBtn");
+        const menuBtn = document.getElementById("menuBtn");
+        const menuModal = document.getElementById("menuModal");
+        const menuContent = document.getElementById("menuContent");
+        const menuScoreboardBtn = document.getElementById("menuScoreboardBtn");
+        const scoreboardBackBtn = document.getElementById("scoreboardBackBtn");
+        const controlsContent = document.getElementById("controlsContent");
+        const menuControlsBtn = document.getElementById("menuControlsBtn");
+        const menuCloseBtn = document.getElementById("menuCloseBtn");
+        const controlsBackBtn = document.getElementById("controlsBackBtn");
+        const gameBoard = document.getElementById("game");
+        const menuChangeNameBtn = document.getElementById("menuChangeNameBtn");
+        const gameCanvas = document.getElementById("game");
+        const holdBtn = document.getElementById("holdBtn");
 
-        // Scoreboard
+        // --- Scoreboard functions
         // Submit score
         async function submitScore(player, points) {
           const res = await fetch('/api/tetrisscores', {
@@ -578,12 +672,13 @@
           scoreRows.innerHTML = rows;
         }
 
-        // Helpers
+        // --- Helpers
         const newGrid = () => Array.from({ length: ROWS }, () => Array(COLS).fill(0));
         const matFor = (p) => {
           const rs = P[p.type].r;
           return rs[p.rot % rs.length];
         };
+
         function randBag() {
           const a = TYPES.slice();
           for (let i = a.length - 1; i > 0; i--) {
@@ -592,6 +687,7 @@
           }
           return a;
         }
+
         function take() {
           if (!bag.length) bag = randBag();
           return bag.pop();
@@ -608,6 +704,52 @@
           for (let y = 0; y < m.length; y++)
             for (let x = 0; x < m[0].length; x++)
               if (m[y][x]) c2d.fillRect(ox + x * cell, oy + y * cell, cell - 1, cell - 1);
+        }
+
+        // Locker counter for delayed piece lock-in
+        function lockCounter() {
+          // Reset lock timer when rotating while grounded (limit resets)
+          if (grounded && lockResetCount < maxLockResets) {
+            lockTimer = 0;
+            lockResetCount++;
+          }
+        }
+
+        // SRS Rotation
+        function rotateWithSRS(dir = 1) {
+          if (noGameInputPeriod()) return;
+
+          const len = P[current.type].r.length;
+          if (len === 1) return; // O piece, skip matrix rotation logic
+
+          const from = current.rot;
+          const to = (from + dir + 4) % 4;
+          const testPiece = { ...current, rot: to };
+
+          // Choose kick table
+          const system =
+            current.type === "I"
+              ? SRS_KICKS.I
+              : current.type === "O"
+              ? SRS_KICKS.O
+              : SRS_KICKS.JLSTZ;
+
+          const kicks = (system[from] && system[from][to]) || [[0,0]];
+
+          for (const [kx, ky] of kicks) {
+            testPiece.x = current.x + kx;
+            testPiece.y = current.y + ky;
+            if (!collision(grid, testPiece)) {
+              current.rot = to;
+              current.x = testPiece.x;
+              current.y = testPiece.y;
+              current.targetX = current.x * SIZE;
+              current.targetY = current.y * SIZE;
+              lockCounter()
+              return;
+            }
+          }
+          // If all fail, no rotation.
         }
 
         function collision(board, p) {
@@ -673,6 +815,10 @@
           setCurrent(t)
           if (collision(grid, current)) gameOver();
           canHold = true;
+          grounded = false;
+          lockTimer = 0;
+          lockResetCount = 0;
+          rowLockDelay = -1;
         }
 
         function setCurrent(t) {
@@ -720,7 +866,6 @@
           }
         }
 
-
         function move(dx) {
           current.x += dx;
           if (collision(grid, current)) {
@@ -728,45 +873,16 @@
           } else {
             // update target in pixels (SIZE = 24 px per cell)
             current.targetX = current.x * SIZE;
+            lockCounter()
           }
         }
 
         function rotate() {
-          if (!noGameInputPeriod()) {
-            const oldRot = current.rot;
-            current.rot = (current.rot + 1) % 4;
-
-            if (collision(grid, current)) {
-              // Try to push piece back inside bounds
-              let kicked = false;
-              for (let offset of [-1, 1, -2, 2]) {
-                current.x += offset;
-                if (!collision(grid, current)) {
-                  kicked = true;
-                  break;
-                }
-                current.x -= offset;
-              }
-              if (!kicked) {
-                // rotation not possible, revert
-                current.rot = oldRot;
-              }
-            }
-            current.targetX = current.x * SIZE;
-            current.targetY = current.y * SIZE;
-          }
+          rotateWithSRS(1);
         }
 
         function rotateCounter() {
-          const len = P[current.type].r.length;
-          const prevR = current.rot, prevX = current.x, prevY = current.y;
-          current.rot = (current.rot + len - 1) % len;
-          const kicks = [0,1,-1,2,-2];
-          for (const k of kicks) {
-            current.x = prevX + k; current.y = prevY;
-            if (!collision(grid, current)) return;
-          }
-          current.rot = prevR; current.x = prevX; current.y = prevY;
+          rotateWithSRS(-1);
         }
 
         function hold() {
@@ -786,6 +902,10 @@
         }
 
         function lockPiece() {
+          lockTimer = 0;
+          grounded = false;
+          lockResetCount = 0;
+          rowLockDelay = -1;
           merge(grid, current);
           current = null;
           const rows = getFullLines();
@@ -925,8 +1045,59 @@
             clearing.elapsed += dt;
             if (clearing.elapsed >= clearing.duration) finalizeClear();
           } else if (!paused && !over) {
+            // If we have a current piece compute whether it is blocked below
+            let blockedBelow = false;
+            if (current) {
+              const test = { ...current, y: current.y + 1 };
+              blockedBelow = collision(grid, test);
+            }
+
+            // Gravity tick (only move down if not blocked below)
             dropCounter += dt;
-            if (dropCounter > dropInterval) { dropCounter = 0; softDrop(); }
+            if (dropCounter > dropInterval) {
+              dropCounter = 0;
+              if (current && !blockedBelow) {
+                current.y++;
+                current.targetY = current.y * SIZE;
+                // After applying gravity, we can re-check blockedBelow for the new position (optional)
+                const test2 = { ...current, y: current.y + 1 };
+                blockedBelow = collision(grid, test2);
+              }
+            }
+
+            // Update grounded state based on blockedBelow (y+1 test)
+            if (current) {
+              if (blockedBelow) {
+                if (!grounded) {
+                  // first frame we become grounded — start lock timer
+                  grounded = true;
+                  lockTimer = 0;
+                  lockResetCount = 0;
+                  rowLockDelay = current.y;
+                }
+                // if already grounded, lockTimer will be incremented below
+              } else if (current.y > rowLockDelay) {
+                // airborne / falling
+                grounded = false;
+                lockTimer = 0;
+                lockResetCount = 0;
+                rowLockDelay = -1;
+              }
+            }
+
+            // Lock timer progression (only while grounded)
+            if (current && grounded) {
+              lockTimer += dt;
+              if (lockTimer >= lockDelay && blockedBelow) {
+                // time's up -> lock the piece
+                lockPiece();
+                // clear lock state in case spawn or other code relies on it
+                lockTimer = 0;
+                grounded = false;
+                lockResetCount = 0;
+                rowLockDelay = -1;
+              }
+            }
           }
 
           if (current) {
@@ -952,6 +1123,7 @@
           return trimmed.replace(/['";]/g, "") || "Guest";
         }
 
+        // --- Keyboard Inputs
         // Input constants
         const DAS = 100, ARR = 60;
         const SDR = 0, SDARR = 60;
@@ -959,8 +1131,6 @@
         // Key state
         let hdir = 0;
         const keys = { left: { held: false, next: 0 }, right: { held: false, next: 0 }, down: { held: false, next: 0 } };
-
-        // --- Keyboard Inputs
         window.addEventListener("keydown", (e) => {
           if (isTextEntry) return;
           const k = e.key;
@@ -1015,8 +1185,7 @@
           }
         }, { passive: false });
 
-        // --- Touch inputs (refined)
-        const gameCanvas = document.getElementById("game");
+        // --- Touch inputs
         let touchStartX = 0, touchStartY = 0, touchStartTime = 0, lastMoveX = 0;
         let softDropInterval = null;
         const swipeThreshold = 30, fastSwipeTime = 200, tapThreshold = 10, tapTime = 200, moveStep = 20, softDropRate = 50;
@@ -1072,20 +1241,7 @@
           }
         }, { passive: false });
 
-        // --- Menu
-        const menuBtn = document.getElementById("menuBtn");
-        const menuModal = document.getElementById("menuModal");
-        const menuContent = document.getElementById("menuContent");
-        const menuScoreboardBtn = document.getElementById("menuScoreboardBtn");
-        const scoreboardBackBtn = document.getElementById("scoreboardBackBtn");
-        const controlsContent = document.getElementById("controlsContent");
-        const menuControlsBtn = document.getElementById("menuControlsBtn");
-        const menuCloseBtn = document.getElementById("menuCloseBtn");
-        const controlsBackBtn = document.getElementById("controlsBackBtn");
-        const gameBoard = document.getElementById("game");
-        const menuChangeNameBtn = document.getElementById("menuChangeNameBtn");
-
-
+        // --- Menus & Misc
         function openMenu() {
           preMenuPaused = paused;
           paused = true;
@@ -1178,7 +1334,7 @@
         });
 
         // Hook up hold button
-        document.getElementById("holdBtn").addEventListener("click", () => hold());
+        holdBtn.addEventListener("click", () => hold());
 
         // For starting game by clicking on game grid
         gameBoard.addEventListener("click", () => {
@@ -1193,6 +1349,7 @@
           menuContent.style.display = "none";
           controlsContent.style.display = "none";
           scoreboard.style.display = "none";
+          loadScores(); // fetch scores from db early for better load performance later
         });
 
         // --- Boot
