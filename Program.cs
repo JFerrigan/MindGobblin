@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text.Json.Serialization;
@@ -7,6 +8,8 @@ using Microsoft.AspNetCore.WebUtilities; // for QueryHelpers
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using JakeServer.Hubs;
+
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -92,7 +95,7 @@ var LOCAL_GENRE_SEEDS = new[]
 };
 
 // ---- Configure EntityFramework and SQLite ----
-builder.Services.AddDbContext<TetrisScoreboardContext>(options =>
+builder.Services.AddDbContext<JakeServerDbContext>(options =>
 {
     var connectionString = "Data Source=/data/jakeserver.db;Cache=Shared;";
     var connection = new SqliteConnection(connectionString);
@@ -111,8 +114,17 @@ builder.Services.AddDbContext<TetrisScoreboardContext>(options =>
     options.UseSqlite(connection);
 });
 
+// ---- Add SignalR ----
+builder.Services.AddSignalR();
 
 var app = builder.Build();
+
+// ---- Apply any pending SQLIte db migrations here ----
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<JakeServerDbContext>();
+    db.Database.Migrate(); // applies all pending migrations
+}
 
 app.UseForwardedHeaders(new ForwardedHeadersOptions {
     ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
@@ -838,7 +850,7 @@ app.MapPost("/api/place/set", async (HttpContext ctx) =>
 
 // ---------- Tong's Tetris API endpoints ----------
 // Get scores (top 10 w/ with player highlight)
-app.MapGet("/api/tetrisscoreshl", async (TetrisScoreboardContext db, int? playerId) =>
+app.MapGet("/api/tetrisscoreshl", async (JakeServerDbContext db, int? playerId) =>
 {
     try
     {
@@ -872,7 +884,7 @@ app.MapGet("/api/tetrisscoreshl", async (TetrisScoreboardContext db, int? player
 });
 
 // Get scores (top 10)
-app.MapGet("/api/tetrisscores", async (TetrisScoreboardContext db) =>
+app.MapGet("/api/tetrisscores", async (JakeServerDbContext db) =>
 {
     try
     {
@@ -891,7 +903,7 @@ app.MapGet("/api/tetrisscores", async (TetrisScoreboardContext db) =>
 });
 
 // Save score
-app.MapPost("/api/tetrisscores", async (TetrisScoreboardContext db, TetrisScore score) =>
+app.MapPost("/api/tetrisscores", async (JakeServerDbContext db, TetrisScore score) =>
 {
     try
     {
@@ -906,7 +918,8 @@ app.MapPost("/api/tetrisscores", async (TetrisScoreboardContext db, TetrisScore 
     }
 });
 
-
+// Logic for pong game lobbies
+app.MapHub<PongGameHub>("/ponggamehub");
 
 PlaceBoard.Load();
 
@@ -1017,18 +1030,34 @@ static class PlaceBoard
     }
 }
 
-// ---------- Tong's Tetris Scoreboard DB Model ----------
-public class TetrisScoreboardContext : DbContext
+// ---------- SQLite DB Context ----------
+public class JakeServerDbContext : DbContext
 {
-    public TetrisScoreboardContext(DbContextOptions<TetrisScoreboardContext> options) : base(options) { }
-    public DbSet<TetrisScore> TetrisScores { get; set; }
+    public JakeServerDbContext(DbContextOptions<JakeServerDbContext> options) : base(options) { }
+    public DbSet<TetrisScore> TetrisScores { get; set; } = default!;
+    public DbSet<PongGameLobby> PongGameLobbies { get; set; } = default!;
 }
+
+// ---------- Tong's Tetris Score DB Model ----------
 public class TetrisScore
 {
     public int Id { get; set; }
     public string Player { get; set; } = "";
     public int Points { get; set; }
     public DateTime PlayedAt { get; set; } = DateTime.UtcNow;
+}
+
+// ---------- Tong's Pong Lobby DB Model ----------
+public class PongGameLobby
+{
+    [Key]
+    public string LobbyId { get; set; } = Guid.NewGuid().ToString("N");
+    public string? LobbyName { get; set; }
+    public string? HostConnectionId { get; set; } // This isn't the actual gameplay lobby (the duel) ID; practically justed used to check if Host has joined lobby
+    public string? ChallengerConnectionId { get; set; } // This isn't the actual gameplay lobby ID; practically justed used to check if Challenger has joined lobby
+    public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
+
+    public bool IsFull => !string.IsNullOrEmpty(HostConnectionId) && !string.IsNullOrEmpty(ChallengerConnectionId);
 }
 
 // ---------- DTOs ----------

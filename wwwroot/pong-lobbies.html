@@ -1,0 +1,173 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Pong Lobbies</title>
+  <style>
+    body { font-family: Arial, Helvetica, sans-serif; padding:20px; background: #071021; color: #eaffff; }
+    #list { margin-top:12px; }
+    .lobby { padding:10px; border:1px solid #555; margin-bottom:8px; cursor:pointer; }
+    .controls { margin-top:12px; }
+    button { padding:6px 10px; border-radius:6px; border:1px solid rgba(255,255,255,0.12); background:transparent; color:#b6f0ff; cursor:pointer; }
+    #status { margin-top:12px; color:#9fb6c2; }
+  </style>
+</head>
+<body>
+  <h1>Pong Lobbies</h1>
+  <div>
+    <button id="createBtn">Create Lobby</button>
+    <button id="refreshBtn">Refresh</button>
+  </div>
+  <div id="status">Connecting...</div>
+  <div id="list"></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/9.0.6/signalr.min.js"></script>
+  <script>
+    const conn = new signalR.HubConnectionBuilder()
+      .withUrl("/ponggamehub?context=lobby")
+      .withAutomaticReconnect()
+      .build();
+    const statusElem = document.getElementById('status');
+    const listElem = document.getElementById('list');
+
+    conn.onclose(() => statusElem.textContent = 'Disconnected');
+    conn.onreconnecting(() => statusElem.textContent = 'Reconnecting...');
+    conn.onreconnected(() => { statusElem.textContent = 'Connected'; loadLobbies(); });
+
+    conn.on("Matched", (lobbyId, side) => {
+      setTimeout(() => {
+        window.location.href = `pong-duel.html?lobbyId=${encodeURIComponent(lobbyId)}&side=${encodeURIComponent(side)}`;
+      }, 150); // in ms
+    });
+
+    conn.on("LobbiesUpdated", loadLobbies);
+
+    async function start() {
+      await conn.start();
+      statusElem.textContent = 'Connected';
+      loadLobbies();
+    }
+
+    async function loadLobbies() {
+      const arr = await conn.invoke("ListLobbies");
+      listElem.innerHTML = "";
+      if (!arr || arr.length === 0) {
+        listElem.textContent = "No open lobbies";
+      } else {
+        arr.forEach(l => {
+          const d = document.createElement('div');
+          d.className = 'lobby';
+          d.textContent = `${l.lobbyName} — Players: ${l.players}/2`;
+          d.onclick = async () => {
+            const ok = await conn.invoke('JoinLobby', l.lobbyId);
+            if (!ok) alert('Could not join — maybe full.');
+          };
+          listElem.appendChild(d);
+        });
+      }
+    }
+
+    function showLobbyNamePrompt(defaultName = "Pong Duel") {
+      return new Promise((resolve, reject) => {
+        // Overlay
+        const overlay = document.createElement('div');
+        overlay.style.position = 'fixed';
+        overlay.style.top = 0;
+        overlay.style.left = 0;
+        overlay.style.width = '100vw';
+        overlay.style.height = '100vh';
+        overlay.style.background = 'rgba(0,0,0,0.6)';
+        overlay.style.display = 'flex';
+        overlay.style.alignItems = 'center';
+        overlay.style.justifyContent = 'center';
+        overlay.style.zIndex = 9999;
+
+        // Box
+        const box = document.createElement('div');
+        box.style.background = '#0d1b2a';
+        box.style.padding = '20px 24px';
+        box.style.borderRadius = '8px';
+        box.style.color = '#eaffff';
+        box.style.boxShadow = '0 4px 20px rgba(0,0,0,0.5)';
+        box.style.textAlign = 'center';
+        box.style.minWidth = '280px';
+
+        const label = document.createElement('div');
+        label.textContent = 'Enter lobby name:';
+        label.style.marginBottom = '10px';
+
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = defaultName;
+        input.maxLength = 60;
+        input.style.width = '100%';
+        input.style.padding = '8px';
+        input.style.border = '1px solid #555';
+        input.style.borderRadius = '4px';
+        input.style.background = '#132238';
+        input.style.color = '#b6f0ff';
+        input.style.fontSize = '14px';
+        input.style.marginBottom = '12px';
+        input.select(); // highlight text immediately
+
+        const btnOk = document.createElement('button');
+        btnOk.textContent = 'OK';
+        btnOk.style.marginRight = '8px';
+
+        const btnCancel = document.createElement('button');
+        btnCancel.textContent = 'Cancel';
+
+        const btnRow = document.createElement('div');
+        btnRow.append(btnOk, btnCancel);
+
+        box.append(label, input, btnRow);
+        overlay.appendChild(box);
+        document.body.appendChild(overlay);
+
+        function cleanup() {
+          overlay.remove();
+        }
+
+        btnCancel.addEventListener('click', () => {
+          cleanup();
+          reject('cancelled');
+        });
+
+        btnOk.addEventListener('click', () => {
+          let lobbyName = input.value.trim();
+          // Sanitize input (letters, digits, space, dash, underscore, parentheses)
+          lobbyName = lobbyName.replace(/[^a-zA-Z0-9 _()\-]/g, '');
+          if (!lobbyName) {
+            alert('Please enter a valid lobby name.');
+            return;
+          }
+          cleanup();
+          resolve(lobbyName);
+        });
+
+        input.addEventListener('keydown', e => {
+          if (e.key === 'Enter') btnOk.click();
+          if (e.key === 'Escape') btnCancel.click();
+        });
+      });
+    }
+
+    document.getElementById('createBtn').addEventListener('click', async () => {
+      try {
+        const lobbyName = await showLobbyNamePrompt("Pong Duel");
+        await conn.invoke('CreateLobby', lobbyName);
+        // Do NOT alert or refresh — the server will redirect us automatically via "Matched"
+      } catch (e) {
+        if (e !== 'cancelled') console.error(e);
+      }
+    });
+
+    document.getElementById('refreshBtn').addEventListener('click', loadLobbies);
+
+    start().catch(err => {
+      console.error(err);
+      statusElem.textContent = 'Connection failed';
+    });
+  </script>
+</body>
+</html>
