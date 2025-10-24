@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Pong Duel</title>
+<style>
+  :root {
+    --bg: #1a2844;
+    --accent: #b6f0ff;
+    --muted: #9fb6c2;
+    --panel: rgba(255,255,255,0.04);
+  }
+  html, body {
+    height:100%;
+    margin:0;
+    font-family:Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+    background: radial-gradient(1000px 500px at 10% 10%, rgba(255,255,255,0.02), transparent),
+                var(--bg);
+    color: var(--accent);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+  }
+  .container {
+    width: 900px;
+    max-width: 95vw;
+    margin: 24px;
+    text-align: center;
+  }
+  h1 { margin: 0 0 8px; font-weight: 600; letter-spacing: 0.6px; }
+  #game {
+    display: block;
+    width: 100%;
+    background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,white,0.0));
+    border-radius: 8px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.02);
+    overflow: hidden;
+  }
+  .bar {
+    margin-top: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    max-width: 900px;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 12px; /* adds some space between control hint text and Leave button */
+  }
+
+  .hint {
+    color: var(--muted);
+    font-size: 13px;
+    text-align: right;
+  }
+  #status { flex: 1; text-align: left; }
+  button {
+    background: transparent;
+    border: 1px solid rgb(117, 122, 170);
+    color: var(--accent);
+    padding: 6px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+</style>
+</head>
+<body>
+  <div class="container">
+    <!--<h1>Pong Duel</h1>-->
+    <canvas id="game" width="900" height="500"></canvas>
+    <div class="bar">
+      <div id="status">Connecting…</div>
+      <div class="controls">
+        <span class="hint"><strong>Space bar:</strong> Serve &nbsp; · &nbsp; <strong>↑</strong><strong>↓</strong> Move</span>
+        <button id="leaveBtn">Leave</button>
+      </div>
+    </div>
+  </div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/9.0.6/signalr.min.js"></script>
+<script>
+  const params = new URLSearchParams(window.location.search);
+  const lobbyId = params.get('lobbyId');
+  const mySide = params.get('side');
+  if (!lobbyId || !mySide) {
+    alert('Invalid access. Go back to lobbies.');
+    window.location.href = 'pong-lobbies.html';
+  }
+
+  // Canvas & game constants (match server)
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width, h = canvas.height;
+  const PADDLE_WIDTH = 14;
+  const PADDLE_HEIGHT = Math.round(h * 0.18);
+  const PADDLE_MARGIN = 24;
+  const BALL_RADIUS = 9;
+
+  let inputTimer;
+
+  // Local state (for rendering / interpolation)
+  let local = {
+    leftY: (h - PADDLE_HEIGHT) / 2,
+    rightY: (h - PADDLE_HEIGHT) / 2,
+    ballX: w/2,
+    ballY: h/2,
+    scoreLeft: 0,
+    scoreRight: 0
+  };
+
+  let target = { ...local, ts: performance.now() };
+  let victoryTime = null;
+  let victoryReached = false;
+  let victoryMsg = null;
+  let serving = false;
+  let servingMsg = null;
+  let servingSide = null;
+
+  const keys = {};
+  window.addEventListener('keydown', e => {
+    keys[e.key] = true;
+    e.preventDefault();
+    if (e.code === 'Space') {
+      if (mySide === servingSide) {
+        serving = false;
+        conn.invoke('ServeBall', lobbyId)
+            .catch(err => console.error("Serve failed:", err));
+      }
+    }
+  });
+  window.addEventListener('keyup', e => {
+    delete keys[e.key];
+    e.preventDefault();
+  });
+
+  window.addEventListener('beforeunload', () => {
+    clearInterval(inputTimer);
+    conn.stop();
+  });
+
+  const conn = new signalR.HubConnectionBuilder()
+    .withUrl(`/ponggamehub?context=duel&lobbyId=${encodeURIComponent(lobbyId)}&side=${encodeURIComponent(mySide)}`)
+    .withAutomaticReconnect()
+    .build();
+
+  const statusElem = document.getElementById('status');
+
+  conn.onclose(() => statusElem.textContent = 'Disconnected');
+  conn.onreconnecting(() => statusElem.textContent = 'Reconnecting...');
+  conn.onreconnected(() => statusElem.textContent = 'Connected');
+
+  conn.on("StateUpdate", s => {
+    target.ballX = s.ballX;
+    target.ballY = s.ballY;
+    target.leftY = s.leftY;
+    target.rightY = s.rightY;
+    target.scoreLeft = s.scoreLeft;
+    target.scoreRight = s.scoreRight;
+    target.ts = performance.now();
+
+    if (s.isReset) {
+      serving = true;
+      // Snap ball instantly (no interpolation) back center
+      local.ballX = s.ballX;
+      local.ballY = s.ballY;
+    }
+  });
+  conn.on("DuelEnded", msg => {
+    serving = false;
+    alert("Duel ended: " + msg);
+    // window.location.href = 'pong-lobbies.html';
+  });
+  conn.on("LobbyClosing", msg => {
+    serving = false;
+    alert("Lobby closing down: " + msg);
+    window.location.href = 'pong-lobbies.html';
+  });
+  conn.on("VictoryReached", msg => {
+    serving = true;
+    local.leftY = (h - PADDLE_HEIGHT) / 2;
+    local.rightY = (h - PADDLE_HEIGHT) / 2;
+    local.scoreLeft = 0;
+    local.scoreRight = 0;
+    local.ballX = w/2;
+    local.ballY = h/2;
+    victoryTime = performance.now();
+    victoryReached = true;
+    victoryMsg = msg;
+    //alert(msg);
+  });
+  conn.on("ForceReset", () => {
+    serving = true;
+    local.leftY = (h - PADDLE_HEIGHT) / 2;
+    local.rightY = (h - PADDLE_HEIGHT) / 2;
+    local.scoreLeft = 0;
+    local.scoreRight = 0;
+    local.ballX = w/2;
+    local.ballY = h/2;
+  });
+  conn.on ("SideServing", msg => {
+    serving = true;
+    servingMsg = `${msg} Serving`;
+    servingSide = msg;
+  });
+
+  async function start() {
+    await conn.start();
+    statusElem.textContent = 'Playing on ';
+    const boldSide = document.createElement('strong');
+    boldSide.textContent = mySide;
+    statusElem.appendChild(boldSide);
+    statusElem.append(' side');
+    await conn.invoke("CheckDuel", lobbyId, mySide);
+  }
+  start().catch(e => {
+    console.error(e);
+    statusElem.textContent = 'Connection error';
+  });
+
+  document.getElementById('leaveBtn').addEventListener('click', async () => {
+    clearInterval(inputTimer);
+    try { await conn.send('LeaveLobby', lobbyId, mySide); }
+    catch(e) { console.error(e); }
+    await conn.stop();  // clean shutdown
+    setTimeout(() => {
+      window.location.href = 'pong-lobbies.html';
+    }, 150); // in ms
+  });
+
+  // Send our paddle updates
+  const SEND_HZ = 20;
+  inputTimer = setInterval(() => {
+    const speed = 12.0;
+    // Apply local prediction for our own paddle
+    if (mySide === 'Left') {
+      if (keys['ArrowUp']) local.leftY -= speed * 1.2; // adjust by frame time if needed
+      if (keys['ArrowDown']) local.leftY += speed * 1.2;
+      local.leftY = Math.max(0, Math.min(local.leftY, h - PADDLE_HEIGHT));
+    } else {
+      if (keys['ArrowUp']) local.rightY -= speed * 1.2;
+      if (keys['ArrowDown']) local.rightY += speed * 1.2;
+      local.rightY = Math.max(0, Math.min(local.rightY, h - PADDLE_HEIGHT));
+    }
+
+    const paddleY = (mySide === 'Left') ? local.leftY : local.rightY;
+    conn.invoke('SendInput', lobbyId, paddleY, mySide).catch(e => console.error(e));
+  }, 1000 / SEND_HZ);
+
+  function lerp(a, b, t) { return a + (b - a) * t; }
+
+  let last = performance.now();
+  function render(now) {
+    const dt = now - last;
+    last = now;
+
+    // interpolation
+    const latency = 100;
+    const elapsed = Math.min(200, now - target.ts);
+    const t = Math.min(1, elapsed / latency);
+
+    local.ballX = lerp(local.ballX, target.ballX, 0.35);
+    local.ballY = lerp(local.ballY, target.ballY, 0.35);
+    local.leftY = lerp(local.leftY, target.leftY, 0.18);
+    local.rightY = lerp(local.rightY, target.rightY, 0.18);
+    local.scoreLeft = target.scoreLeft;
+    local.scoreRight = target.scoreRight;
+
+    // draw background
+    ctx.fillStyle = '#071021';
+    ctx.fillRect(0, 0, w, h);
+
+    // net
+    ctx.fillStyle = '#ffffff22';
+    for (let y = 10; y < h; y += 24) {
+      ctx.fillRect(w/2 - 2, y, 4, 12);
+    }
+
+    // paddles
+    ctx.fillStyle = '#b6f0ff';
+    roundRect(ctx, PADDLE_MARGIN, local.leftY, PADDLE_WIDTH, PADDLE_HEIGHT, 6);
+    roundRect(ctx, w - PADDLE_MARGIN - PADDLE_WIDTH, local.rightY, PADDLE_WIDTH, PADDLE_HEIGHT, 6);
+
+    // ball
+    ctx.beginPath();
+    ctx.arc(local.ballX, local.ballY, BALL_RADIUS, 0, Math.PI*2);
+    ctx.fillStyle = '#eaffff';
+    ctx.fill();
+
+    // player scores
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.font = '700 40px Inter, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(local.scoreLeft, w*0.25, 30);
+    ctx.fillText(local.scoreRight, w*0.75, 30);
+
+    // waiting message if no updates recently
+    if ((performance.now() - target.ts) > 2000) {
+      ctx.fillStyle = 'rgba(255,200,0,1)';
+      ctx.font = 'bold 18px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('Waiting for Opponent…', w/2, h/2 - 60);
+    }
+
+    // victory message
+    if (victoryReached) {
+      if ((performance.now() - victoryTime) < 2000) {
+        ctx.fillStyle = 'rgba(255,255,1,1)';
+        ctx.font = '24px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(victoryMsg, w/2, h/2 - 60);
+      } else {
+        victoryReached = false;
+      }
+    }
+
+    // ball serving message
+    if (serving) {
+      ctx.fillStyle = 'rgba(255,255,255,0.6)';
+      ctx.font = '24px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(servingMsg, w/2, h/2 - 20);
+    }
+
+    requestAnimationFrame(render);
+  }
+  requestAnimationFrame(render);
+
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+    ctx.fill();
+  }
+</script>
+</body>
+</html>

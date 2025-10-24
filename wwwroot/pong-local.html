@@ -1,0 +1,438 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Two-Player Pong (W/S & ↑/↓)</title>
+<style>
+  :root {
+    --bg: #0b1220;
+    --accent: #b6f0ff;
+    --muted: #9fb6c2;
+    --panel: rgba(255,255,255,0.04);
+  }
+  html,body{
+    height:100%;
+    margin:0;
+    font-family:Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+    background: radial-gradient(1000px 500px at 10% 10%, rgba(255,255,255,0.02), transparent),
+                var(--bg);
+    color:var(--accent);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+  }
+  .container{
+    width:900px;
+    max-width:95vw;
+    margin:24px;
+    text-align:center;
+  }
+  h1{ margin:0 0 8px 0; font-weight:600; letter-spacing:0.6px; }
+  #game {
+    display:block;
+    width:100%;
+    background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.0));
+    border-radius:8px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.02);
+    overflow:hidden;
+  }
+  .panel {
+    margin-top:12px;
+    display:flex;
+    justify-content:center;;
+    align-items:center;
+    position: relative;
+    min-height: 38px; /* ensures consistent vertical centering */
+    gap:12px;
+    background:var(--panel);
+    color:var(--muted);
+    padding:8px 12px;
+    border-radius:8px;
+    font-size:14px;
+  }
+  #resetBtn {
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%); /* vertically centers the button */
+  }
+  .controls { font-size:13px; color:var(--muted) }
+  .big {
+    font-weight:700;
+    color:var(--accent);
+  }
+  button {
+    background:transparent;
+    border:1px solid rgba(255,255,255,0.06);
+    color:var(--accent);
+    padding:6px 10px;
+    border-radius:6px;
+    cursor:pointer;
+  }
+  footer { margin-top:10px; color:var(--muted); font-size:13px; }
+  @media (max-width:500px){
+    .container{ width:98vw; }
+  }
+</style>
+</head>
+<body>
+  <div class="container">
+    <h1>Pong</h1>
+    <canvas id="game" width="900" height="500"></canvas>
+
+    <div class="panel" role="status">
+      <div class="controls">
+        Left Player: <strong>W</strong>/<strong>S</strong> &nbsp; · &nbsp; Right Player: <strong>↑</strong>/<strong>↓</strong>
+        &nbsp; · &nbsp; <strong>Space:</strong> serve &nbsp; · &nbsp; <strong>P:</strong> pause &nbsp; · &nbsp; <strong>R:</strong> reset
+      </div>
+      <div>
+        <button id="resetBtn">Reset</button>
+      </div>
+    </div>
+
+    <footer>First to <span id="winTo">10</span> wins.</footer>
+  </div>
+
+<script>
+/* Two-player Pong (W/S and Up/Down) — updated:
+   - Space now properly serves when the game is waiting to serve.
+   - R key (and Reset button) fully reset scores and state.
+*/
+
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d', {alpha:false});
+const w = canvas.width;
+const h = canvas.height;
+
+// Config
+const PADDLE_WIDTH = 14;
+const PADDLE_HEIGHT = Math.round(h * 0.18);
+const PADDLE_MARGIN = 24;
+const PADDLE_SPEED = 6.0;
+const BALL_RADIUS = 9;
+const BALL_START_SPEED = 5.0;
+const BALL_SPEED_INCREMENT = 0.25;   // speed up on paddle hit
+const WIN_SCORE = 5; // displayed and used
+document.getElementById('winTo').textContent = WIN_SCORE;
+
+// Game state
+let left = {
+  x: PADDLE_MARGIN,
+  y: (h - PADDLE_HEIGHT) / 2,
+  vy: 0,
+  score: 0
+};
+let right = {
+  x: w - PADDLE_MARGIN - PADDLE_WIDTH,
+  y: (h - PADDLE_HEIGHT) / 2,
+  vy: 0,
+  score: 0
+};
+let ball = {
+  x: w/2,
+  y: h/2,
+  vx: 0,
+  vy: 0,
+  speed: BALL_START_SPEED
+};
+let keys = {};
+let paused = false;
+let serving = true; // waiting for serve
+let serveDir = 1; // 1 = right, -1 = left
+let winner = null;
+
+// Audio (simple beeps)
+let audioCtx = null;
+function beep(freq, duration=0.06, type='sine', vol=0.08){
+  try{
+    if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.type = type;
+    o.frequency.value = freq;
+    g.gain.value = vol;
+    o.connect(g); g.connect(audioCtx.destination);
+    o.start();
+    g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
+    o.stop(audioCtx.currentTime + duration + 0.02);
+  }catch(e){}
+}
+
+// Initialize / reset ball after a point
+function resetBall(towardRight=true){
+  ball.x = w/2;
+  ball.y = h/2;
+  ball.speed = BALL_START_SPEED;
+  const angle = (Math.random() * 0.6 - 0.3); // slight random angle
+  ball.vx = (towardRight ? 1 : -1) * ball.speed * Math.cos(angle);
+  ball.vy = ball.speed * Math.sin(angle);
+  serving = false;
+}
+
+// Serve (press space)
+// FIX: Serve should only happen when we're currently waiting to serve (serving === true)
+function serve(){
+  if(serving && !winner){
+    resetBall(serveDir > 0);
+    beep(220, 0.08);
+  }
+}
+
+// Reset full game
+function fullReset(){
+  left.score = 0;
+  right.score = 0;
+  winner = null;
+  paused = false;
+  serving = true;
+  serveDir = Math.random() < 0.5 ? -1 : 1;
+  left.y = (h - PADDLE_HEIGHT)/2;
+  right.y = (h - PADDLE_HEIGHT)/2;
+  ball.x = w/2; ball.y = h/2; ball.vx = 0; ball.vy = 0;
+}
+
+// Input handling
+window.addEventListener('keydown', (e) => {
+  // Use e.code for reliable Space detection; also support ' ' in case older browsers return that
+  if(e.code === 'Space' || e.key === ' ' || e.key === 'Spacebar'){
+    e.preventDefault();
+    if(winner) fullReset();
+    else serve();
+  } else if(e.key === 'p' || e.key === 'P'){
+    paused = !paused;
+  } else if(e.key === 'r' || e.key === 'R'){
+    fullReset();
+  }
+  keys[e.key] = true;
+});
+window.addEventListener('keyup', (e) => {
+  delete keys[e.key];
+});
+
+// Physics & update
+function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
+
+function update(){
+  if(paused || winner) return;
+
+  // Paddle movement
+  left.vy = 0;
+  if(keys['w'] || keys['W']) left.vy = -PADDLE_SPEED;
+  if(keys['s'] || keys['S']) left.vy = PADDLE_SPEED;
+  right.vy = 0;
+  if(keys['ArrowUp']) right.vy = -PADDLE_SPEED;
+  if(keys['ArrowDown']) right.vy = PADDLE_SPEED;
+
+  left.y += left.vy;
+  right.y += right.vy;
+  left.y = clamp(left.y, 0, h - PADDLE_HEIGHT);
+  right.y = clamp(right.y, 0, h - PADDLE_HEIGHT);
+
+  if(serving) return; // ball doesn't move until serve
+
+  // Move ball
+  ball.x += ball.vx;
+  ball.y += ball.vy;
+
+  // Top/bottom collision
+  if(ball.y - BALL_RADIUS <= 0){
+    ball.y = BALL_RADIUS;
+    ball.vy = -ball.vy;
+    beep(600, 0.04);
+  } else if(ball.y + BALL_RADIUS >= h){
+    ball.y = h - BALL_RADIUS;
+    ball.vy = -ball.vy;
+    beep(600, 0.04);
+  }
+
+  // Left paddle collision
+  if(ball.x - BALL_RADIUS <= left.x + PADDLE_WIDTH &&
+     ball.x - BALL_RADIUS >= left.x &&
+     ball.y >= left.y - 2 && ball.y <= left.y + PADDLE_HEIGHT + 2) {
+
+    // calculate hit position relative to paddle center (-1 to 1)
+    const relative = ((ball.y - (left.y + PADDLE_HEIGHT/2)) / (PADDLE_HEIGHT/2));
+    const maxBounce = Math.PI/3; // 60 degrees
+    const bounceAngle = relative * maxBounce;
+
+    ball.speed = Math.min(20, ball.speed + BALL_SPEED_INCREMENT);
+    ball.vx = Math.cos(bounceAngle) * ball.speed;
+    ball.vy = Math.sin(bounceAngle) * ball.speed;
+    // ensure ball moves right
+    if(ball.vx < 0) ball.vx = -ball.vx;
+
+    // nudge ball out to avoid sticky collision
+    ball.x = left.x + PADDLE_WIDTH + BALL_RADIUS + 0.5;
+    beep(900, 0.03);
+  }
+
+  // Right paddle collision
+  if(ball.x + BALL_RADIUS >= right.x &&
+     ball.x + BALL_RADIUS <= right.x + PADDLE_WIDTH &&
+     ball.y >= right.y - 2 && ball.y <= right.y + PADDLE_HEIGHT + 2) {
+
+    const relative = ((ball.y - (right.y + PADDLE_HEIGHT/2)) / (PADDLE_HEIGHT/2));
+    const maxBounce = Math.PI/3;
+    const bounceAngle = relative * maxBounce;
+
+    ball.speed = Math.min(20, ball.speed + BALL_SPEED_INCREMENT);
+    ball.vx = -Math.cos(bounceAngle) * ball.speed;
+    ball.vy = Math.sin(bounceAngle) * ball.speed;
+    if(ball.vx > 0) ball.vx = -ball.vx;
+
+    ball.x = right.x - BALL_RADIUS - 0.5;
+    beep(900, 0.03);
+  }
+
+  // Score — ball passed left or right
+  if(ball.x + BALL_RADIUS < 0){
+    // Right scored
+    right.score += 1;
+    beep(160, 0.18, 'square', 0.12);
+    serveDir = -1; // next serve goes left (toward scorer)
+    serving = true;
+    ball.vx = ball.vy = 0;
+    ball.x = w/2; ball.y = h/2;
+    // check winner
+    if(right.score >= WIN_SCORE) {
+      winner = 'Right Player (→)';
+      paused = true;
+    }
+  } else if(ball.x - BALL_RADIUS > w){
+    // Left scored
+    left.score += 1;
+    beep(160, 0.18, 'square', 0.12);
+    serveDir = 1;
+    serving = true;
+    ball.vx = ball.vy = 0;
+    ball.x = w/2; ball.y = h/2;
+    if(left.score >= WIN_SCORE) {
+      winner = 'Left Player (←)';
+      paused = true;
+    }
+  }
+}
+
+// Render
+function drawNet(){
+  const gap = 16;
+  const seg = 10;
+  ctx.save();
+  ctx.globalAlpha = 0.45;
+  ctx.fillStyle = '#ffffff';
+  for(let y = 10; y < h; y += gap){
+    ctx.fillRect(w/2 - seg/4, y, seg/6, seg);
+  }
+  ctx.restore();
+}
+
+function draw(){
+  // background
+  ctx.fillStyle = '#071021';
+  ctx.fillRect(0,0,w,h);
+
+  // glow
+  ctx.save();
+  ctx.fillStyle = 'rgba(182,240,255,0.02)';
+  ctx.fillRect(0,0,w,h);
+  ctx.restore();
+
+  // net
+  drawNet();
+
+  // paddles
+  ctx.fillStyle = '#b6f0ff';
+  // left
+  roundRect(ctx, left.x, left.y, PADDLE_WIDTH, PADDLE_HEIGHT, 6);
+  // right
+  roundRect(ctx, right.x, right.y, PADDLE_WIDTH, PADDLE_HEIGHT, 6);
+
+  // ball (with slight glow)
+  ctx.save();
+  const g = ctx.createRadialGradient(ball.x, ball.y, BALL_RADIUS*0.2, ball.x, ball.y, BALL_RADIUS*2.6);
+  g.addColorStop(0, 'rgba(182,240,255,1)');
+  g.addColorStop(0.18, 'rgba(182,240,255,0.6)');
+  g.addColorStop(1, 'rgba(182,240,255,0)');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(ball.x, ball.y, BALL_RADIUS*1.4, 0, Math.PI*2);
+  ctx.fill();
+  ctx.restore();
+
+  ctx.fillStyle = '#eaffff';
+  ctx.beginPath();
+  ctx.arc(ball.x, ball.y, BALL_RADIUS, 0, Math.PI*2);
+  ctx.fill();
+
+  // scores and messages
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  ctx.font = '700 40px Inter, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(left.score, w*0.25, 60);
+  ctx.fillText(right.score, w*0.75, 60);
+
+  ctx.font = '14px Inter, sans-serif';
+  ctx.fillStyle = 'rgba(255,255,255,0.55)';
+  if(serving && !winner){
+    ctx.fillText('Press Space to serve', w/2, h/2 - 60);
+  } else if(paused && !winner){
+    ctx.fillText('Paused (P to resume)', w/2, h/2 - 60);
+  }
+  if(winner){
+    ctx.font = '28px Inter, sans-serif';
+    ctx.fillStyle = '#bfffe6';
+    ctx.fillText(`${winner} wins! Press Space or R to play again.`, w/2, h/2 - 60);
+  }
+
+  // little FPS/prompt (optional)
+}
+
+// helper to draw rounded rect
+function roundRect(ctx, x, y, w, h, r){
+  const radius = typeof r === 'number' ? r : 6;
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(x + w - radius, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
+  ctx.lineTo(x + w, y + h - radius);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
+  ctx.lineTo(x + radius, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
+  ctx.lineTo(x, y + radius);
+  ctx.quadraticCurveTo(x, y, x + radius, y);
+  ctx.closePath();
+  ctx.fill();
+}
+
+// main loop
+let last = performance.now();
+function loop(now){
+  const dt = now - last;
+  last = now;
+  update(dt);
+  draw();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+// Attach UI controls
+document.getElementById('resetBtn').addEventListener('click', () => {
+  fullReset();
+  paused = false;
+  serving = true;
+});
+
+// Start with serve direction random
+serveDir = Math.random() < 0.5 ? -1 : 1;
+
+// small usability: if user clicks canvas, try to resume audio (for mobile)
+canvas.addEventListener('click', () => {
+  try {
+    if(audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+  } catch(e){}
+});
+
+</script>
+</body>
+</html>
