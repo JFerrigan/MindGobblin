@@ -101,6 +101,7 @@
   const PADDLE_HEIGHT = Math.round(h * 0.18);
   const PADDLE_MARGIN = 24;
   const BALL_RADIUS = 9;
+  const paddleSpeed =300; // pixels per second
 
   let inputTimer;
 
@@ -121,6 +122,7 @@
   let serving = false;
   let servingMsg = null;
   let servingSide = null;
+  let lastFrameTime = performance.now();
 
   const keys = {};
   window.addEventListener('keydown', e => {
@@ -233,21 +235,29 @@
     }, 150); // in ms
   });
 
-  // Send our paddle updates
-  const SEND_HZ = 20;
-  inputTimer = setInterval(() => {
-    const speed = 12.0;
-    // Apply local prediction for our own paddle
+  // Track paddle position with smooth per-frame motion
+  function updateLocalPaddle(now) {
+    const dt = (now - lastFrameTime) / 1000;
+    lastFrameTime = now;
+
+    const move = paddleSpeed * dt;
     if (mySide === 'Left') {
-      if (keys['ArrowUp']) local.leftY -= speed * 1.2; // adjust by frame time if needed
-      if (keys['ArrowDown']) local.leftY += speed * 1.2;
+      if (keys['ArrowUp']) local.leftY -= move;
+      if (keys['ArrowDown']) local.leftY += move;
       local.leftY = Math.max(0, Math.min(local.leftY, h - PADDLE_HEIGHT));
     } else {
-      if (keys['ArrowUp']) local.rightY -= speed * 1.2;
-      if (keys['ArrowDown']) local.rightY += speed * 1.2;
+      if (keys['ArrowUp']) local.rightY -= move;
+      if (keys['ArrowDown']) local.rightY += move;
       local.rightY = Math.max(0, Math.min(local.rightY, h - PADDLE_HEIGHT));
     }
 
+    requestAnimationFrame(updateLocalPaddle);
+  }
+  requestAnimationFrame(updateLocalPaddle);
+
+  // Keep sending inputs to server at 20 Hz (unchanged frequency)
+  const SEND_HZ = 20;
+  setInterval(() => {
     const paddleY = (mySide === 'Left') ? local.leftY : local.rightY;
     conn.invoke('SendInput', lobbyId, paddleY, mySide).catch(e => console.error(e));
   }, 1000 / SEND_HZ);
@@ -266,8 +276,14 @@
 
     local.ballX = lerp(local.ballX, target.ballX, 0.35);
     local.ballY = lerp(local.ballY, target.ballY, 0.35);
-    local.leftY = lerp(local.leftY, target.leftY, 0.18);
-    local.rightY = lerp(local.rightY, target.rightY, 0.18);
+    // Only interpolate the opponent's paddle
+    if (mySide === 'Left') {
+      // We control left paddle, so don't lerp it
+      local.rightY = lerp(local.rightY, target.rightY, 0.18);
+    } else {
+      // We control right paddle
+      local.leftY = lerp(local.leftY, target.leftY, 0.18);
+    }
     local.scoreLeft = target.scoreLeft;
     local.scoreRight = target.scoreRight;
 
