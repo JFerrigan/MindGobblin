@@ -52,13 +52,12 @@ namespace JakeServer.Hubs
 
         private static ConcurrentDictionary<string, bool> ActiveConnections = new();
         private bool LobbyCreationInProgress = false;
-        private bool rightLost = true;
 
         static ConcurrentDictionary<string, Duel> Duels = new();
 
         const int WIDTH = 900;
         const int HEIGHT = 500;
-        const float PADDLE_HEIGHT = (float)(HEIGHT * 0.18);
+        const float PADDLE_HEIGHT = (float)(HEIGHT * 0.20); // slightly bigger than client to give player some buffer
         const float BALL_RADIUS = 9f;
         const float BALL_START_SPEED = 5.0f;
         const float TICK_HZ = 30f;
@@ -519,6 +518,7 @@ namespace JakeServer.Hubs
             if (!d.BallInPlay && d.Serving)
             {
                 ResetBall(d, d.ServeDir > 0);
+                await _hubContext.Clients.Group(lobbyId).SendAsync("BallServed");
 
                 d.BallInPlay = true;
                 d.Serving = false;
@@ -593,15 +593,6 @@ namespace JakeServer.Hubs
 
         private void SetServingSide(Duel d, string side)
         {
-            // Set the serving player to the side that lost last round
-            if (side == "Left")
-            {
-                rightLost = false;
-            }
-            else
-            {
-                rightLost = true;
-            }
             _ = _hubContext.Clients.Group(d.LobbyId).SendAsync("SideServing", side);
         }
         #endregion

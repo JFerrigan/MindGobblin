@@ -801,7 +801,7 @@
             score += pts + comboPtsBonus;
             lines += n;
             level = 1 + ((lines / 10) | 0);
-            dropInterval = Math.max(80, 900 - (level - 1) * 80);
+            dropInterval = Math.max(1, 900 - (level - 1) * 30);
             updateHUD();
           }
           clearing = null;

@@ -93,7 +93,6 @@
     window.location.href = 'pong-lobbies.html';
   }
 
-  // Canvas & game constants (match server)
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
   const w = canvas.width, h = canvas.height;
@@ -101,11 +100,11 @@
   const PADDLE_HEIGHT = Math.round(h * 0.18);
   const PADDLE_MARGIN = 24;
   const BALL_RADIUS = 9;
-  const paddleSpeed =300; // pixels per second
+  const PADDLE_SPEED = 300; // pixels/second
 
   let inputTimer;
 
-  // Local state (for rendering / interpolation)
+  // local paddle and ball positions -> used for rendering
   let local = {
     leftY: (h - PADDLE_HEIGHT) / 2,
     rightY: (h - PADDLE_HEIGHT) / 2,
@@ -115,13 +114,28 @@
     scoreRight: 0
   };
 
+  // desired paddle position (what player wants) -> sent to server. NOT used for rendering.
+  let desired = {
+    leftY: (h - PADDLE_HEIGHT) / 2,
+    rightY: (h - PADDLE_HEIGHT) / 2
+  };
+
+  // for position infmroation from the server
   let target = { ...local, ts: performance.now() };
+
+  // New interpolation helpers
+  let prevTarget = { ...local, ts: performance.now() };
+  let stateLerpStart = performance.now();
+  const SERVER_HZ = 30;
+  const SERVER_INTERVAL = 1000 / SERVER_HZ;
+
   let victoryTime = null;
   let victoryReached = false;
   let victoryMsg = null;
   let serving = false;
   let servingMsg = null;
   let servingSide = null;
+  let gameRestart = false;
   let lastFrameTime = performance.now();
 
   const keys = {};
@@ -157,7 +171,10 @@
   conn.onreconnecting(() => statusElem.textContent = 'Reconnecting...');
   conn.onreconnected(() => statusElem.textContent = 'Connected');
 
+  // --- StateUpdate handler ---
   conn.on("StateUpdate", s => {
+    prevTarget = { ...target }; // store previous snapshot
+
     target.ballX = s.ballX;
     target.ballY = s.ballY;
     target.leftY = s.leftY;
@@ -165,18 +182,30 @@
     target.scoreLeft = s.scoreLeft;
     target.scoreRight = s.scoreRight;
     target.ts = performance.now();
+    stateLerpStart = performance.now();
 
     if (s.isReset) {
       serving = true;
-      // Snap ball instantly (no interpolation) back center
+      // Snap instantly on reset
       local.ballX = s.ballX;
       local.ballY = s.ballY;
+      prevTarget.ballX = s.ballX;
+      prevTarget.ballY = s.ballY;
+    }
+
+    if (gameRestart) {
+      gameRestart = false;
+      local.leftY = s.leftY;
+      local.rightY = s.rightY;
+      desired.leftY = s.leftY;
+      desired.rightY = s.rightY;
+      prevTarget = { ...target }; // make previous and target same on reset
     }
   });
+
   conn.on("DuelEnded", msg => {
     serving = false;
     alert("Duel ended: " + msg);
-    // window.location.href = 'pong-lobbies.html';
   });
   conn.on("LobbyClosing", msg => {
     serving = false;
@@ -185,30 +214,22 @@
   });
   conn.on("VictoryReached", msg => {
     serving = true;
-    local.leftY = (h - PADDLE_HEIGHT) / 2;
-    local.rightY = (h - PADDLE_HEIGHT) / 2;
-    local.scoreLeft = 0;
-    local.scoreRight = 0;
-    local.ballX = w/2;
-    local.ballY = h/2;
     victoryTime = performance.now();
     victoryReached = true;
     victoryMsg = msg;
-    //alert(msg);
+    gameRestart = true;
   });
   conn.on("ForceReset", () => {
     serving = true;
-    local.leftY = (h - PADDLE_HEIGHT) / 2;
-    local.rightY = (h - PADDLE_HEIGHT) / 2;
-    local.scoreLeft = 0;
-    local.scoreRight = 0;
-    local.ballX = w/2;
-    local.ballY = h/2;
+    gameRestar = true;
   });
-  conn.on ("SideServing", msg => {
+  conn.on("SideServing", msg => {
     serving = true;
     servingMsg = `${msg} Serving`;
     servingSide = msg;
+  });
+  conn.on("BallServed", () => {
+    serving = false;
   });
 
   async function start() {
@@ -229,61 +250,48 @@
     clearInterval(inputTimer);
     try { await conn.send('LeaveLobby', lobbyId, mySide); }
     catch(e) { console.error(e); }
-    await conn.stop();  // clean shutdown
+    await conn.stop();
     setTimeout(() => {
       window.location.href = 'pong-lobbies.html';
-    }, 150); // in ms
+    }, 150);
   });
 
-  // Track paddle position with smooth per-frame motion
+  // No local paddle motion — only send input to server
   function updateLocalPaddle(now) {
     const dt = (now - lastFrameTime) / 1000;
     lastFrameTime = now;
 
-    const move = paddleSpeed * dt;
+    const move = PADDLE_SPEED * dt;
     if (mySide === 'Left') {
-      if (keys['ArrowUp']) local.leftY -= move;
-      if (keys['ArrowDown']) local.leftY += move;
-      local.leftY = Math.max(0, Math.min(local.leftY, h - PADDLE_HEIGHT));
+      if (keys['ArrowUp']) desired.leftY -= move;
+      if (keys['ArrowDown']) desired.leftY += move;
+      desired.leftY = Math.max(0, Math.min(desired.leftY, h - PADDLE_HEIGHT));
     } else {
-      if (keys['ArrowUp']) local.rightY -= move;
-      if (keys['ArrowDown']) local.rightY += move;
-      local.rightY = Math.max(0, Math.min(local.rightY, h - PADDLE_HEIGHT));
+      if (keys['ArrowUp']) desired.rightY -= move;
+      if (keys['ArrowDown']) desired.rightY += move;
+      desired.rightY = Math.max(0, Math.min(desired.rightY, h - PADDLE_HEIGHT));
     }
 
     requestAnimationFrame(updateLocalPaddle);
   }
   requestAnimationFrame(updateLocalPaddle);
 
-  // Keep sending inputs to server at 20 Hz (unchanged frequency)
-  const SEND_HZ = 20;
+  // Send inputs to server at 30 Hz (no local motion)
+  const SEND_HZ = 30;
   setInterval(() => {
-    const paddleY = (mySide === 'Left') ? local.leftY : local.rightY;
+    const paddleY = (mySide === 'Left') ? desired.leftY : desired.rightY;
     conn.invoke('SendInput', lobbyId, paddleY, mySide).catch(e => console.error(e));
   }, 1000 / SEND_HZ);
 
   function lerp(a, b, t) { return a + (b - a) * t; }
 
-  let last = performance.now();
   function render(now) {
-    const dt = now - last;
-    last = now;
-
-    // interpolation
-    const latency = 100;
-    const elapsed = Math.min(200, now - target.ts);
-    const t = Math.min(1, elapsed / latency);
-
-    local.ballX = lerp(local.ballX, target.ballX, 0.35);
-    local.ballY = lerp(local.ballY, target.ballY, 0.35);
-    // Only interpolate the opponent's paddle
-    if (mySide === 'Left') {
-      // We control left paddle, so don't lerp it
-      local.rightY = lerp(local.rightY, target.rightY, 0.18);
-    } else {
-      // We control right paddle
-      local.leftY = lerp(local.leftY, target.leftY, 0.18);
-    }
+    // Interpolate from prevTarget -> target
+    const t = Math.min(1, (now - stateLerpStart) / SERVER_INTERVAL);
+    local.ballX = lerp(prevTarget.ballX, target.ballX, t);
+    local.ballY = lerp(prevTarget.ballY, target.ballY, t);
+    local.leftY = lerp(prevTarget.leftY, target.leftY, t);
+    local.rightY = lerp(prevTarget.rightY, target.rightY, t);
     local.scoreLeft = target.scoreLeft;
     local.scoreRight = target.scoreRight;
 
@@ -308,14 +316,14 @@
     ctx.fillStyle = '#eaffff';
     ctx.fill();
 
-    // player scores
+    // scores
     ctx.fillStyle = 'rgba(255,255,255,0.85)';
     ctx.font = '700 40px Inter, sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText(local.scoreLeft, w*0.25, 30);
     ctx.fillText(local.scoreRight, w*0.75, 30);
 
-    // waiting message if no updates recently
+    // waiting message
     if ((performance.now() - target.ts) > 2000) {
       ctx.fillStyle = 'rgba(255,200,0,1)';
       ctx.font = 'bold 18px sans-serif';
@@ -323,7 +331,7 @@
       ctx.fillText('Waiting for Opponent…', w/2, h/2 - 60);
     }
 
-    // victory message
+    // victory
     if (victoryReached) {
       if ((performance.now() - victoryTime) < 2000) {
         ctx.fillStyle = 'rgba(255,255,1,1)';
@@ -335,7 +343,7 @@
       }
     }
 
-    // ball serving message
+    // serving message
     if (serving) {
       ctx.fillStyle = 'rgba(255,255,255,0.6)';
       ctx.font = '24px sans-serif';
