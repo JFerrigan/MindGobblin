@@ -28,6 +28,7 @@
     max-width: 95vw;
     margin: 24px;
     text-align: center;
+    position: relative; /* make touch controls positionable relative to this */
   }
   h1 { margin: 0 0 8px; font-weight: 600; letter-spacing: 0.6px; }
   #game {
@@ -68,16 +69,192 @@
     border-radius: 6px;
     cursor: pointer;
   }
+
+  /* ---------- TOUCH / MOUSE BUTTONS ---------- */
+
+  /* container-relative wrappers */
+  .touch-wrapper {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    pointer-events: none; /* allow clicks through except for the control elements themselves */
+  }
+
+  /* generic triangle button */
+  .triangle-btn {
+    pointer-events: auto; /* enable interaction */
+    position: absolute;
+    width: 0;
+    height: 0;
+    opacity: 0.75;
+    transition: opacity 0.08s, filter 0.08s;
+    user-select: none;
+    touch-action: none;
+  }
+  .triangle-btn.pressed {
+    opacity: 1;
+    filter: brightness(1.6);
+  }
+
+  /* up triangle (pointing up) */
+  .triangle-up {
+    border-left: 28px solid transparent;
+    border-right: 28px solid transparent;
+    border-bottom: 44px solid var(--accent);
+  }
+
+  /* down triangle (pointing down) */
+  .triangle-down {
+    border-left: 28px solid transparent;
+    border-right: 28px solid transparent;
+    border-top: 44px solid var(--accent);
+  }
+
+  /* small responsive sizing for narrow viewports */
+  @media (max-width: 420px) {
+    .triangle-up { border-left: 20px solid transparent; border-right: 20px solid transparent; border-bottom: 32px solid var(--accent); }
+    .triangle-down { border-left: 20px solid transparent; border-right: 20px solid transparent; border-top: 32px solid var(--accent); }
+  }
+
+  /* Serve tap area (invisible rectangle over the board center) */
+  .serve-zone {
+    pointer-events: auto;
+    position: absolute;
+    background: rgba(255,255,255,0.01); /* almost invisible but receives events */
+    border-radius: 6px;
+    touch-action: none;
+  }
+
+  /* --- PORTRAIT --- */
+  @media (orientation: portrait) {
+    .bar {
+      flex-direction: row;
+      flex-wrap: nowrap;
+      font-size: clamp(9px, 2.4vw, 13px);
+    }
+    .controls .hint {
+      font-size: clamp(8px, 2vw, 12px);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    #leaveBtn {
+      padding: 3px 6px;
+      font-size: clamp(9px, 2.3vw, 12px);
+    }
+
+    /* Move triangle buttons slightly lower */
+    .triangle-up,
+    .triangle-down {
+      transform: translateY(10px);
+      border-left: 30px solid transparent;
+      border-right: 30px solid transparent;
+    }
+  }
+
+  /* --- LANDSCAPE --- */
+  @media (orientation: landscape) {
+    html, body {
+      justify-content: center;
+      align-items: center;
+    }
+
+    .container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      max-width: 90vw;
+    }
+
+    canvas#game {
+      max-height: 70vh;
+      width: auto;
+      height: auto;
+      display: block;
+      margin: 0 auto;
+    }
+
+    /* Big triangle buttons for easier touch control */
+    .triangle-up,
+    .triangle-down {
+      border-left: 30px solid transparent;
+      border-right: 30px solid transparent;
+    }
+    .triangle-up {
+      border-bottom: 50px solid var(--accent);
+    }
+    .triangle-down {
+      border-top: 50px solid var(--accent);
+    }
+
+    /* Centered and compact bottom bar */
+    .bar {
+      margin-top: 10px;
+      max-width: 80vw;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+      font-size: clamp(9px, 1.2vw, 12px);
+      gap: 8px;
+    }
+
+    .controls {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .controls .hint {
+      font-size: clamp(8px, 1vw, 11px);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    #leaveBtn {
+      font-size: clamp(9px, 1vw, 11px);
+      padding: 3px 6px;
+    }
+  }
+
+  /* --- Make serve zone invisible but still clickable --- */
+  .serve-zone {
+    opacity: 0;
+    pointer-events: auto;
+  }
+
+  /* --- Prevent accidental selection/drag across all modes --- */
+  html, body, canvas, button, .bar, .triangle-btn, .serve-zone {
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+    touch-action: none;
+  }
 </style>
 </head>
 <body>
   <div class="container">
     <!--<h1>Pong Duel</h1>-->
     <canvas id="game" width="900" height="500"></canvas>
+
+    <!-- TOUCH / MOUSE CONTROLS (minimal DOM added) -->
+    <div class="touch-wrapper" id="touchWrapper" aria-hidden="true">
+      <div id="btnUp" class="triangle-btn triangle-up" role="button" aria-label="Up"></div>
+      <div id="btnDown" class="triangle-btn triangle-down" role="button" aria-label="Down"></div>
+      <div id="serveZone" class="serve-zone" aria-label="Serve"></div>
+    </div>
+
     <div class="bar">
       <div id="status">Connecting…</div>
       <div class="controls">
-        <span class="hint"><strong>Space bar:</strong> Serve &nbsp; · &nbsp; <strong>↑</strong><strong>↓</strong> Move</span>
+        <span class="hint"><strong>Space bar</strong> or <strong>Click Center:</strong> Serve &nbsp; · &nbsp; <strong>↑</strong><strong>↓</strong> Move</span>
         <button id="leaveBtn">Leave</button>
       </div>
     </div>
@@ -369,6 +546,160 @@
     ctx.closePath();
     ctx.fill();
   }
+
+  /* ---------- TOUCH / MOUSE BUTTON BEHAVIOR (minimal JS added) ---------- */
+
+  const btnUp = document.getElementById('btnUp');
+  const btnDown = document.getElementById('btnDown');
+  const serveZone = document.getElementById('serveZone');
+  const touchWrapper = document.getElementById('touchWrapper');
+
+  // Helper to set pressed visual and key state
+  function pressKey(key) {
+    // set key true and add pressed class
+    keys[key] = true;
+    if (key === 'ArrowUp') btnUp.classList.add('pressed');
+    if (key === 'ArrowDown') btnDown.classList.add('pressed');
+  }
+  function releaseKey(key) {
+    delete keys[key];
+    if (key === 'ArrowUp') btnUp.classList.remove('pressed');
+    if (key === 'ArrowDown') btnDown.classList.remove('pressed');
+  }
+
+  // Add both touch and mouse handlers for a button element
+  function addPressHandlers(el, key) {
+    // Touch events
+    el.addEventListener('touchstart', e => {
+      e.preventDefault();
+      pressKey(key);
+    }, { passive: false });
+    el.addEventListener('touchend', e => {
+      e.preventDefault();
+      releaseKey(key);
+    }, { passive: false });
+    el.addEventListener('touchcancel', e => {
+      e.preventDefault();
+      releaseKey(key);
+    }, { passive: false });
+
+    // Mouse events (mousedown + mouseup + mouseleave)
+    el.addEventListener('mousedown', e => {
+      e.preventDefault();
+      pressKey(key);
+    });
+    // releasing mouse anywhere should release key (mouseup on window)
+    window.addEventListener('mouseup', e => {
+      // release whether mouseup occurred on element or not
+      releaseKey(key);
+    });
+    el.addEventListener('mouseleave', e => {
+      // if cursor leaves while pressed, also release visual
+      // (leave doesn't necessarily release the key if mouse button still down,
+      // but we choose to mirror touch behavior and clear on leave)
+      el.classList.remove('pressed');
+    });
+  }
+
+  addPressHandlers(btnUp, 'ArrowUp');
+  addPressHandlers(btnDown, 'ArrowDown');
+
+  // Serve zone: touch or click centered region -> serve if allowed
+  function handleServeAttempt() {
+    if (serving && mySide === servingSide) {
+      // trigger same server call as space bar
+      conn.invoke('ServeBall', lobbyId).catch(err => console.error("Serve failed:", err));
+      // visually nothing to toggle for serve zone
+    }
+  }
+
+  serveZone.addEventListener('touchstart', e => {
+    e.preventDefault();
+    handleServeAttempt();
+  }, { passive: false });
+
+  serveZone.addEventListener('mousedown', e => {
+    e.preventDefault();
+    handleServeAttempt();
+  });
+
+  /* Layout logic: position buttons outside the canvas based on available horizontal space.
+     We DON'T detect device type; we simply check horizontal space around the canvas.
+     If each side's free space >= threshold, we place left/right; otherwise bottom.
+  */
+  function layoutControls() {
+    const portrait = window.matchMedia('(orientation: portrait)').matches;
+    const wrapperRect = touchWrapper.getBoundingClientRect();
+    const rect = canvas.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+
+    // Keep everything centered in both orientations
+    document.body.style.display = 'flex';
+    document.body.style.flexDirection = 'column';
+    document.body.style.justifyContent = 'center';
+    document.body.style.alignItems = 'center';
+
+    // Slight scaling if canvas too tall in landscape
+    if (!portrait && rect.height > vh * 0.72) {
+      const scale = (vh * 0.72) / rect.height;
+      canvas.style.transform = `scale(${scale})`;
+      canvas.style.transformOrigin = 'center center';
+    } else {
+      canvas.style.transform = '';
+    }
+
+    const updatedRect = canvas.getBoundingClientRect();
+    const freeEachSide = (vw - updatedRect.width) / 2;
+
+    if (!portrait && freeEachSide >= 60) {
+      // --- LANDSCAPE ---
+      const centerY = updatedRect.top + updatedRect.height / 2;
+      const btnSize = Math.max(40, updatedRect.height * 0.12);
+
+      // Move buttons closer to the board (reduced horizontal offset)
+      const horizontalOffset = btnSize * 1.2;
+      const verticalOffset = btnSize * 0.5;
+
+      // Left-side (up) button
+      btnUp.style.left = (updatedRect.left - horizontalOffset - 30 - wrapperRect.left) + 'px';
+      btnUp.style.top = (centerY - verticalOffset - wrapperRect.top) + 'px';
+
+      // Right-side (down) button
+      btnDown.style.left = (updatedRect.right + (horizontalOffset - 4 - btnSize * 0.6) - wrapperRect.left) + 'px';
+      btnDown.style.top = (centerY - verticalOffset - wrapperRect.top) + 'px';
+    } else {
+      // --- PORTRAIT ---
+      const leftX = updatedRect.left + updatedRect.width * 0.25 - 24;
+      const rightX = updatedRect.left + updatedRect.width * 0.75 - 24;
+      const yBelow = updatedRect.bottom + 45; // slightly lower
+
+      btnUp.style.left = (leftX - wrapperRect.left) + 'px';
+      btnUp.style.top = (yBelow - wrapperRect.top) + 'px';
+      btnDown.style.left = (rightX - wrapperRect.left) + 'px';
+      btnDown.style.top = (yBelow - wrapperRect.top) + 'px';
+    }
+
+    // Serve zone (invisible but centered)
+    const serveW = Math.max(50, updatedRect.width * 0.15);
+    const serveH = Math.max(36, updatedRect.height * 0.1);
+    serveZone.style.width = serveW + 'px';
+    serveZone.style.height = serveH + 'px';
+    serveZone.style.left =
+      updatedRect.left + updatedRect.width / 2 - serveW / 2 - wrapperRect.left + 'px';
+    serveZone.style.top =
+      updatedRect.top + updatedRect.height / 2 - serveH / 2 - wrapperRect.top + 'px';
+  }
+
+  // initial layout and on resize/scroll (canvas may move)
+  window.addEventListener('resize', () => setTimeout(layoutControls, 50));
+  window.addEventListener('scroll', layoutControls);
+  window.addEventListener('orientationchange', () => setTimeout(layoutControls, 200));
+  // small debounce to initial layout after fonts/layout stabilized
+  setTimeout(layoutControls, 100);
+  // also layout after load (in case)
+  window.addEventListener('load', () => setTimeout(layoutControls, 100));
+
 </script>
 </body>
 </html>

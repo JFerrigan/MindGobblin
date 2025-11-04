@@ -2,19 +2,116 @@
 <html>
 <head>
   <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Pong Lobbies</title>
   <style>
-    body { font-family: Arial, Helvetica, sans-serif; padding:20px; background: #071021; color: #eaffff; }
-    #list { margin-top:12px; }
-    .lobby { padding:10px; border:1px solid #555; margin-bottom:8px; cursor:pointer; }
-    .controls { margin-top:12px; }
-    button { padding:6px 10px; border-radius:6px; border:1px solid rgba(255,255,255,0.12); background:transparent; color:#b6f0ff; cursor:pointer; }
-    #status { margin-top:12px; color:#9fb6c2; }
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      padding: 10px;
+      margin: 0;
+      background: #071021;
+      color: #eaffff;
+    }
+
+    h1 {
+      font-size: 1.5em;
+      margin-bottom: 12px;
+      text-align: center;
+    }
+
+    #list {
+      margin-top: 12px;
+    }
+
+    .lobby {
+      padding: 12px;
+      border: 1px solid #555;
+      margin-bottom: 8px;
+      cursor: pointer;
+      word-break: break-word;
+      border-radius: 6px;
+    }
+
+    .controls {
+      margin-top: 12px;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    button {
+      padding: 10px 14px;
+      border-radius: 6px;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: transparent;
+      color: #b6f0ff;
+      cursor: pointer;
+      font-size: 1em;
+      flex: 1 1 auto;
+      min-width: 90px;
+    }
+
+    #status {
+      margin-top: 12px;
+      color: #9fb6c2;
+      text-align: center;
+      font-size: 1em;
+    }
+
+    /* Overlay Box */
+    .overlay-box {
+      background: #0d1b2a;
+      padding: 20px 24px;
+      border-radius: 8px;
+      color: #eaffff;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+      text-align: center;
+      min-width: 280px;
+      max-width: 90vw;
+    }
+
+    .overlay-box input {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #555;
+      border-radius: 4px;
+      background: #132238;
+      color: #b6f0ff;
+      font-size: 16px;
+      margin-bottom: 12px;
+      box-sizing: border-box;
+    }
+
+    .overlay-box button {
+      font-size: 1em;
+      padding: 8px 12px;
+    }
+
+    /* Small screen scaled-down */
+    @media (max-width: 400px) {
+      h1 { font-size: 1.5em; } 
+      .lobby { font-size: 0.9em; padding: 8px; } 
+      button { font-size: 1em; padding: 6px 8px; min-width: 40px; }
+      #status { font-size: 1em; }
+      .overlay-box { padding: 10px; min-width: 85vw; }
+      .overlay-box input { font-size: 12px; padding: 5px; }
+      .overlay-box button { font-size: 1em; padding: 6px 8px; }
+    }
+
+    /* Optional landscape tweak */
+    @media (orientation: landscape) and (max-height: 400px) {
+      body { padding: 5px; }
+      h1 { font-size: 1.3em; }
+      button { font-size: 0.9em; padding: 5px 6px; }
+      .lobby { font-size: 0.9em; padding: 6px; }
+      #status { font-size: 0.9em; }
+    }
   </style>
 </head>
 <body>
   <h1>Pong Lobbies</h1>
-  <div>
+  <div class="controls">
     <button id="createBtn">Create Lobby</button>
     <button id="refreshBtn">Refresh</button>
   </div>
@@ -37,7 +134,7 @@
     conn.on("Matched", (lobbyId, side) => {
       setTimeout(() => {
         window.location.href = `pong-duel.html?lobbyId=${encodeURIComponent(lobbyId)}&side=${encodeURIComponent(side)}`;
-      }, 150); // in ms
+      }, 150);
     });
 
     conn.on("LobbiesUpdated", loadLobbies);
@@ -69,7 +166,6 @@
 
     function showLobbyNamePrompt(defaultName = "Pong Duel") {
       return new Promise((resolve, reject) => {
-        // Overlay
         const overlay = document.createElement('div');
         overlay.style.position = 'fixed';
         overlay.style.top = 0;
@@ -82,15 +178,8 @@
         overlay.style.justifyContent = 'center';
         overlay.style.zIndex = 9999;
 
-        // Box
         const box = document.createElement('div');
-        box.style.background = '#0d1b2a';
-        box.style.padding = '20px 24px';
-        box.style.borderRadius = '8px';
-        box.style.color = '#eaffff';
-        box.style.boxShadow = '0 4px 20px rgba(0,0,0,0.5)';
-        box.style.textAlign = 'center';
-        box.style.minWidth = '280px';
+        box.className = 'overlay-box';
 
         const label = document.createElement('div');
         label.textContent = 'Enter lobby name:';
@@ -100,15 +189,7 @@
         input.type = 'text';
         input.value = defaultName;
         input.maxLength = 60;
-        input.style.width = '100%';
-        input.style.padding = '8px';
-        input.style.border = '1px solid #555';
-        input.style.borderRadius = '4px';
-        input.style.background = '#132238';
-        input.style.color = '#b6f0ff';
-        input.style.fontSize = '14px';
-        input.style.marginBottom = '12px';
-        input.select(); // highlight text immediately
+        input.select();
 
         const btnOk = document.createElement('button');
         btnOk.textContent = 'OK';
@@ -124,23 +205,12 @@
         overlay.appendChild(box);
         document.body.appendChild(overlay);
 
-        function cleanup() {
-          overlay.remove();
-        }
+        function cleanup() { overlay.remove(); }
 
-        btnCancel.addEventListener('click', () => {
-          cleanup();
-          reject('cancelled');
-        });
-
+        btnCancel.addEventListener('click', () => { cleanup(); reject('cancelled'); });
         btnOk.addEventListener('click', () => {
-          let lobbyName = input.value.trim();
-          // Sanitize input (letters, digits, space, dash, underscore, parentheses)
-          lobbyName = lobbyName.replace(/[^a-zA-Z0-9 _()\-]/g, '');
-          if (!lobbyName) {
-            alert('Please enter a valid lobby name.');
-            return;
-          }
+          let lobbyName = input.value.trim().replace(/[^a-zA-Z0-9 _()\-]/g, '');
+          if (!lobbyName) { alert('Please enter a valid lobby name.'); return; }
           cleanup();
           resolve(lobbyName);
         });
@@ -156,7 +226,6 @@
       try {
         const lobbyName = await showLobbyNamePrompt("Pong Duel");
         await conn.invoke('CreateLobby', lobbyName);
-        // Do NOT alert or refresh — the server will redirect us automatically via "Matched"
       } catch (e) {
         if (e !== 'cancelled') console.error(e);
       }
