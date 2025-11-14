@@ -124,7 +124,7 @@
 
     .spooky-item {
       position: fixed;
-      width: var(--spooky-size);
+      width: calc(var(--spooky-size)*0.75);
       height: var(--spooky-size);
       opacity: .95;
       filter: drop-shadow(0 0 6px rgba(63, 240, 193, .25));
@@ -151,8 +151,8 @@
   <script>
     (function () {
       // ---- EDIT THESE PATHS ----
-      const LEFT_SRC = 'img/pumpkin.png';     // used on left rows
-      const RIGHT_SRC = 'img/cat.png';   // used on right rows
+      const LEFT_SRC = 'img/snowman.png';     // used on left rows
+      const RIGHT_SRC = 'img/christmastree.png';   // used on right rows
       // --------------------------
 
       const trail = document.querySelector('.spooky-trail');
@@ -209,7 +209,7 @@
 
 <body>
   <header>
-    <img src="img/mindgoblin.png" alt="Mind Goblin Icon">
+    <img src="img/festivemindgoblin.png" alt="Mind Goblin Icon">
     <h1>Welcome to MindGobblin</h1>
     <p>A collection of games & things</p>
   </header>
