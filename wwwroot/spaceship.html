@@ -42,7 +42,8 @@
 <div id="overlay"></div>
 <div id="help">
   Controls: ← → rotate · ↑ thrust / takeoff · SPACE stage · R reset · [ / ] time warp · - / = zoom · F follow/free<br>
-  Mouse wheel zooms · Drag to pan (free cam) · Dashed path = coast-only trajectory under moving Sun + planet gravity.
+  Mouse wheel zooms · Drag to pan (free cam) · Dashed path = coast-only trajectory under moving Sun + planet gravity.<br>
+  Transfer planner: 1/2/3 select target · P plan Sun-centered Hohmann (inner→outer only)
 </div>
 
 <script>
@@ -52,7 +53,6 @@
   const overlay = document.getElementById("overlay");
   const SAFE_COORD = 1_000_000;
   const SAFE_ORBIT_RADIUS_PX = 20000;
-
 
   function resize() {
     canvas.width = window.innerWidth;
@@ -80,6 +80,28 @@
   let dragStartY = 0;
   let dragStartCamX = 0;
   let dragStartCamY = 0;
+
+  // --- Transfer planner state -------------------------------------------
+  // 1 = Kerbette, 2 = Munlet, 3 = Duna-ish (indices into BODIES)
+  let transferTargetIndex = 3;  // default to Duna-ish
+  let transferPlan = null;      // populated by createTransferPlan()
+
+  function normalizeAngle(a) {
+    const twoPi = Math.PI * 2;
+    a = a % twoPi;
+    if (a < 0) a += twoPi;
+    return a;
+  }
+
+  // Smallest signed angle diff target - current in [-π, π]
+  function smallestAngleDiff(target, current) {
+    const t = normalizeAngle(target);
+    const c = normalizeAngle(current);
+    let d = t - c;
+    if (d > Math.PI) d -= 2 * Math.PI;
+    if (d < -Math.PI) d += 2 * Math.PI;
+    return d;
+  }
 
   // --- Celestial bodies: Sun + orbiting planets -------------------------
   // Units: x,y,radius in km, mu in km^3 / s^2, atmosphere in km
@@ -289,6 +311,9 @@
     cameraFollow = true;
     cameraX = state.rocket.x;
     cameraY = state.rocket.y;
+
+    // Clear any existing transfer plan
+    transferPlan = null;
   }
 
   resetGame();
@@ -349,6 +374,28 @@
       } else {
         state.message = "Camera: free";
       }
+    }
+
+    // Transfer planner: choose destination body
+    if (e.code === "Digit1") {
+      transferTargetIndex = 1; // Kerbette
+      transferPlan = null;
+      state.message = "Transfer target: Kerbette";
+    }
+    if (e.code === "Digit2") {
+      transferTargetIndex = 2; // Munlet
+      transferPlan = null;
+      state.message = "Transfer target: Munlet";
+    }
+    if (e.code === "Digit3") {
+      transferTargetIndex = 3; // Duna-ish
+      transferPlan = null;
+      state.message = "Transfer target: Duna-ish";
+    }
+
+    // Transfer planner: compute Sun-centered Hohmann from current primary
+    if (e.code === "KeyP") {
+      createTransferPlan();
     }
   });
 
@@ -588,9 +635,22 @@
     const rx = rocket.x - body.x;
     const ry = rocket.y - body.y;
     const r = Math.hypot(rx, ry);
-    const vx = rocket.vx;
-    const vy = rocket.vy;
-    const v2 = vx * vx + vy * vy;
+
+    // Compute body's inertial velocity (for planets orbiting Sun)
+    let bodyVx = 0;
+    let bodyVy = 0;
+    if (typeof body.orbitalRadius === "number") {
+      const rOrbit = body.orbitalRadius;
+      const omega = body.orbitalSpeed;
+      const angle = body.angle;
+      bodyVx = -Math.sin(angle) * rOrbit * omega;
+      bodyVy =  Math.cos(angle) * rOrbit * omega;
+    }
+
+    // Use velocity relative to the body for orbital elements
+    const vxRel = rocket.vx - bodyVx;
+    const vyRel = rocket.vy - bodyVy;
+    const v2 = vxRel * vxRel + vyRel * vyRel;
     const mu = body.mu;
 
     const specificEnergy = 0.5 * v2 - mu / r;
@@ -609,7 +669,7 @@
       // Elliptic orbit about this body
       state.orbitBound = true;
 
-      const h = rx * vy - ry * vx;
+      const h = rx * vyRel - ry * vxRel;
       const a = -mu / (2 * specificEnergy);
       let e2 = 1 - (h * h) / (a * mu);
       if (e2 < 0) e2 = 0;
@@ -621,12 +681,12 @@
 
       // Compute periapsis/apoapsis world positions via eccentricity vector
       if (isFinite(a) && e >= 0) {
-        const rdotv = rx * vx + ry * vy;
+        const rdotv = rx * vxRel + ry * vyRel;
         const factor1 = (v2 - mu / r) / mu;
         const factor2 = rdotv / mu;
 
-        let ex = factor1 * rx - factor2 * vx;
-        let ey = factor1 * ry - factor2 * vy;
+        let ex = factor1 * rx - factor2 * vxRel;
+        let ey = factor1 * ry - factor2 * vyRel;
         let emag = Math.hypot(ex, ey);
 
         if (emag < 1e-6) {
@@ -679,8 +739,85 @@
     }
   }
 
+  // --- Hohmann transfer planner -----------------------------------------
+  function createTransferPlan() {
+    const rocket = state.rocket;
+    if (!rocket) return;
+
+    // Origin body = current primary (nearest body)
+    const origin = state.primaryBody || getPrimaryBody(rocket.x, rocket.y);
+    const originIndex = BODIES.indexOf(origin);
+    const destIndex = transferTargetIndex;
+
+    if (originIndex <= 0 || destIndex <= 0) {
+      state.message = "Planner: origin and destination must be planets (not the Sun).";
+      transferPlan = null;
+      return;
+    }
+
+    const dest = BODIES[destIndex];
+
+    if (typeof origin.orbitalRadius !== "number" || typeof dest.orbitalRadius !== "number") {
+      state.message = "Planner: both bodies must orbit the Sun.";
+      transferPlan = null;
+      return;
+    }
+
+    const r1 = origin.orbitalRadius;
+    const r2 = dest.orbitalRadius;
+
+    if (r2 <= r1) {
+      state.message = "Planner: only inner→outer Hohmann supported (origin closer to Sun than destination).";
+      transferPlan = null;
+      return;
+    }
+
+    const mu = SUN.mu;
+
+    // Transfer orbit
+    const a_t = (r1 + r2) / 2;
+    const tTransfer = Math.PI * Math.sqrt((a_t * a_t * a_t) / mu); // seconds
+
+    // Circular speeds at r1, r2
+    const v1 = Math.sqrt(mu / r1);
+    const v2 = Math.sqrt(mu / r2);
+
+    // Speeds on transfer orbit at periapsis (r1) and apoapsis (r2)
+    const vTrans1 = Math.sqrt(mu * (2 / r1 - 1 / a_t));
+    const vTrans2 = Math.sqrt(mu * (2 / r2 - 1 / a_t));
+
+    const deltaV1 = vTrans1 - v1; // departure burn magnitude
+    const deltaV2 = v2 - vTrans2; // circularization at destination
+
+    // Use kinematic Sun-centered angular speeds from the simulation
+    const omegaOrigin = origin.orbitalSpeed;
+    const omegaDest = dest.orbitalSpeed;
+
+    // Required phase angle (dest leading origin) at departure.
+    const phaseTarget = normalizeAngle(Math.PI - omegaDest * tTransfer);
+
+    // Freeze the transfer ellipse orientation at creation time
+    const periAngle = origin.angle;
+
+    transferPlan = {
+      originIndex,
+      destIndex,
+      r1,
+      r2,
+      a_t,
+      tTransfer,
+      deltaV1,
+      deltaV2,
+      phaseTarget,
+      periAngle,
+      omegaOrigin,
+      omegaDest
+    };
+
+    state.message = "Planner: Hohmann " + origin.name + " → " + dest.name + " created. Aim to burn when phase error ≈ 0°.";
+  }
+
   // --- Predictive path: coast-only under all-body gravity, with MOVING bodies ---
-    // --- Predictive path: coast-only under all-body gravity, with MOVING bodies ---
   function updatePredictedPath() {
     const rocket = state.rocket;
     if (!rocket || state.crashed || state.landed) {
@@ -771,9 +908,7 @@
     state.predictedPath = predicted;
   }
 
-
   // --- Drawing -----------------------------------------------------------
-    // --- Drawing -----------------------------------------------------------
   function draw() {
     const w = canvas.width;
     const h = canvas.height;
@@ -814,6 +949,58 @@
       }
     }
     ctx.restore();
+
+    // Hohmann transfer orbit (if any)
+    if (transferPlan) {
+      const { r1, r2, a_t, periAngle } = transferPlan;
+
+      const maxR = Math.max(r1, r2);
+      const maxRPx = maxR * scale;
+      if (maxRPx < SAFE_ORBIT_RADIUS_PX) {
+        const eTran = (r2 - r1) / (r2 + r1); // eccentricity for inner→outer Hohmann
+
+        ctx.save();
+        ctx.strokeStyle = "rgba(0, 255, 255, 0.8)";
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 4]);
+
+        ctx.beginPath();
+        let started = false;
+        let prevOnScreen = false;
+
+        const steps = 120; // resolution for the half-ellipse
+        for (let i = 0; i <= steps; i++) {
+          const f = (Math.PI * i) / steps;  // true anomaly from 0 (periapsis) to π (apoapsis)
+          const r = a_t * (1 - eTran * eTran) / (1 + eTran * Math.cos(f));
+          const theta = periAngle + f;
+
+          const x = SUN.x + r * Math.cos(theta);
+          const y = SUN.y + r * Math.sin(theta);
+
+          const p = worldToScreen(x, y);
+          const onScreen = screenWithinBounds(p);
+
+          if (!onScreen) {
+            prevOnScreen = false;
+            continue;
+          }
+
+          if (!started) {
+            ctx.moveTo(p.x, p.y);
+            started = true;
+          } else if (!prevOnScreen) {
+            ctx.moveTo(p.x, p.y);
+          } else {
+            ctx.lineTo(p.x, p.y);
+          }
+
+          prevOnScreen = true;
+        }
+
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
 
     // Bodies: Sun + planets
     for (const body of BODIES) {
@@ -1074,10 +1261,39 @@
       "Apoapsis: " + apoapsisText + "\n" +
       "WARP: " + timeScale.toFixed(2) + "x\n" +
       "ZOOM: " + cameraZoom.toFixed(2) + "x\n" +
-      "CAM: " + camModeText + "\n\n" +
-      state.message;
-  }
+      "CAM: " + camModeText + "\n";
 
+    // Transfer planner HUD
+    if (transferPlan) {
+      const origin = BODIES[transferPlan.originIndex];
+      const dest = BODIES[transferPlan.destIndex];
+
+      const currentPhase = normalizeAngle(dest.angle - origin.angle);
+      const phaseErrorRad = smallestAngleDiff(transferPlan.phaseTarget, currentPhase);
+      const phaseErrorDeg = phaseErrorRad * 180 / Math.PI;
+
+      const relOmega = transferPlan.omegaDest - transferPlan.omegaOrigin;
+      let timeToWindow = null;
+      if (Math.abs(relOmega) > 1e-8) {
+        let tRaw = phaseErrorRad / relOmega; // seconds to hit target exactly
+        const synodicPeriod = 2 * Math.PI / Math.abs(relOmega);
+        // Wrap to the next positive occurrence
+        tRaw = ((tRaw % synodicPeriod) + synodicPeriod) % synodicPeriod;
+        timeToWindow = tRaw;
+      }
+
+      overlay.textContent +=
+        "\nTRANSFER: " + origin.name + " → " + dest.name + "\n" +
+        "Phase error: " + phaseErrorDeg.toFixed(1) + "°\n" +
+        (timeToWindow != null
+           ? "Time to window: " + (timeToWindow / 60).toFixed(1) + " min\n"
+           : "") +
+        "Δv1 (depart): " + transferPlan.deltaV1.toFixed(3) + " km/s\n" +
+        "Δv2 (circularize): " + transferPlan.deltaV2.toFixed(3) + " km/s\n";
+    }
+
+    overlay.textContent += "\n" + state.message;
+  }
 
   // --- Main loop with substepping ---------------------------------------
   let lastTime = performance.now();
