@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>2D Kerbal-Style Orbit Game – Sun & Planets</title>
+<title>2D Kerbal-Style Orbit Game – Helion System</title>
 <style>
   html, body {
     margin: 0;
@@ -42,8 +42,8 @@
 <div id="overlay"></div>
 <div id="help">
   Controls: ← → rotate · ↑ thrust / takeoff · SPACE stage · R reset · [ / ] time warp · - / = zoom · F follow/free<br>
-  Mouse wheel zooms · Drag to pan (free cam) · Dashed path = coast-only trajectory under moving Sun + planet gravity.<br>
-  Transfer planner: 1/2/3 select target · P plan Sun-centered Hohmann (inner→outer only)
+  Mouse wheel zooms · Drag to pan (free cam) · Dashed path = coast-only trajectory under moving Helion + planet gravity.<br>
+  Transfer planner: 1–8 select target planet · P plan Sun-centered Hohmann (inner → outer only)
 </div>
 
 <script>
@@ -69,7 +69,7 @@
   // --- Camera: zoom, pan, follow ----------------------------------------
   let cameraZoom = 8;            // higher default to keep planets visible with big system
   const MIN_ZOOM = 0.25;
-  const MAX_ZOOM = 1000;         // ⬅ allow ~1000x zoom
+  const MAX_ZOOM = 1000;         // allow ~1000x zoom
 
   let cameraX = 0;
   let cameraY = 0;
@@ -82,8 +82,8 @@
   let dragStartCamY = 0;
 
   // --- Transfer planner state -------------------------------------------
-  // 1 = Kerbette, 2 = Munlet, 3 = Duna-ish (indices into BODIES)
-  let transferTargetIndex = 3;  // default to Duna-ish
+  // indices into BODIES (1..8 are planets)
+  let transferTargetIndex = 3;  // some default
   let transferPlan = null;      // populated by createTransferPlan()
 
   function normalizeAngle(a) {
@@ -103,61 +103,129 @@
     return d;
   }
 
-  // --- Celestial bodies: Sun + orbiting planets -------------------------
+  function setTransferTarget(index) {
+    if (index <= 0 || index >= BODIES.length) return;
+    transferTargetIndex = index;
+    transferPlan = null;
+    if (state) {
+      state.message = "Transfer target: " + BODIES[index].name;
+    }
+  }
+
+  // --- Celestial bodies: Helion + orbiting planets ----------------------
   // Units: x,y,radius in km, mu in km^3 / s^2, atmosphere in km
-  // Radii chosen with more realistic ratios (Sun > Kerbette > Duna > Munlet),
-  // and mu chosen so surface gravity ratios approximate Sun/Earth/Moon/Mars.
+  // Radii and mu tuned for decent gameplay; not realistic.
   const BODIES = [
     {
       // Central star
-      name: "Sun",
+      name: "Helion",
       x: 0,
       y: 0,
       radius: 1200,
-      mu: 4.0176e7,       // ~27.9x Kerbette surface gravity
+      mu: 4.0176e7,       // strong gravity
       atmosphere: 0,
       colors: { inner: "#fff7b3", mid: "#ffcc33", outer: "#d47a1a" }
     },
     {
-      // Earth-like
-      name: "Kerbette",
-      orbitalRadius: 15000,   // farther from the Sun
+      // Homeworld – Earth-like
+      name: "Astraia",
+      orbitalRadius: 15000,
       angle: 0,
-      orbitalSpeed: 0,        // set later based on Sun.mu
+      orbitalSpeed: 0,
       x: 0, y: 0,
       radius: 600,
-      mu: 3.6e5,              // baseline g
+      mu: 3.6e5,
       atmosphere: 40,
-      colors: { inner: "#0a3b52", mid: "#0a4f2b", outer: "#021016" }
+      colors: { inner: "#08384f", mid: "#0a5b32", outer: "#021016" }
     },
     {
-      // Small gray Moon-like body
-      name: "Munlet",
-      orbitalRadius: 30000,   // farther out
-      angle: Math.PI,
+      // Rocky twilight world
+      name: "Nyxos",
+      orbitalRadius: 21000,
+      angle: 1.4,
       orbitalSpeed: 0,
       x: 0, y: 0,
-      radius: 170,
-      mu: 4.7685e3,           // ~0.165x Kerbette surface g
+      radius: 300,
+      mu: 6.0e4,
       atmosphere: 0,
-      colors: { inner: "#666666", mid: "#999999", outer: "#222222" }
+      colors: { inner: "#30213b", mid: "#5b3e7a", outer: "#150d1f" }
     },
     {
-      // Red Mars-like planet
-      name: "Duna-ish",
-      orbitalRadius: 50000,   // even farther out
-      angle: -Math.PI / 2,
+      // Ocean world
+      name: "Thalassa",
+      orbitalRadius: 28000,
+      angle: -2.0,
       orbitalSpeed: 0,
       x: 0, y: 0,
-      radius: 340,
-      mu: 4.3928e4,           // ~0.38x Kerbette surface g
-      atmosphere: 25,
-      colors: { inner: "#5a2610", mid: "#a03c14", outer: "#1e0500" }
+      radius: 700,
+      mu: 6.0e5,
+      atmosphere: 60,
+      colors: { inner: "#0b3b6f", mid: "#1579c1", outer: "#031322" }
+    },
+    {
+      // Ember-toned desert
+      name: "Emberon",
+      orbitalRadius: 36000,
+      angle: 2.6,
+      orbitalSpeed: 0,
+      x: 0, y: 0,
+      radius: 260,
+      mu: 4.0e4,
+      atmosphere: 20,
+      colors: { inner: "#5a2610", mid: "#c0551c", outer: "#280904" }
+    },
+    {
+      // Icy mirror world
+      name: "Mirr",
+      orbitalRadius: 48000,
+      angle: -1.1,
+      orbitalSpeed: 0,
+      x: 0, y: 0,
+      radius: 400,
+      mu: 1.8e5,
+      atmosphere: 10,
+      colors: { inner: "#d0e7ff", mid: "#7ca0c8", outer: "#1b2635" }
+    },
+    {
+      // Dark outer rock
+      name: "Umbral",
+      orbitalRadius: 65000,
+      angle: 0.9,
+      orbitalSpeed: 0,
+      x: 0, y: 0,
+      radius: 320,
+      mu: 7.0e4,
+      atmosphere: 0,
+      colors: { inner: "#262b33", mid: "#4b5663", outer: "#090b0f" }
+    },
+    {
+      // Gas giant
+      name: "Zephyrus",
+      orbitalRadius: 90000,
+      angle: -2.5,
+      orbitalSpeed: 0,
+      x: 0, y: 0,
+      radius: 1000,
+      mu: 2.5e6,
+      atmosphere: 150,
+      colors: { inner: "#30406b", mid: "#5b7fc0", outer: "#101525" }
+    },
+    {
+      // Remote ice giant
+      name: "Noxshade",
+      orbitalRadius: 130000,
+      angle: 0.3,
+      orbitalSpeed: 0,
+      x: 0, y: 0,
+      radius: 800,
+      mu: 1.6e6,
+      atmosphere: 120,
+      colors: { inner: "#485f78", mid: "#7ca3d0", outer: "#0b1018" }
     }
   ];
 
   const SUN = BODIES[0];
-  const MAIN_BODY = BODIES[1]; // launch from Kerbette
+  const MAIN_BODY = BODIES[1]; // launch from Astraia
 
   // Compute rough system size based on orbital radii
   function computeSystemRadius() {
@@ -177,7 +245,7 @@
   const SYSTEM_RADIUS = computeSystemRadius();
   const SYSTEM_ESCAPE_RADIUS = SYSTEM_RADIUS * 2.5;
 
-  // Initialize planet orbits (circular, kinematic) around the Sun
+  // Initialize planet orbits (circular, kinematic) around Helion
   function initOrbits() {
     for (let i = 1; i < BODIES.length; i++) {
       const body = BODIES[i];
@@ -255,7 +323,7 @@
 
     const mb = MAIN_BODY;
 
-    // Direction from Sun to planet (radial)
+    // Direction from Helion to planet (radial)
     const dxSun = mb.x - SUN.x;
     const dySun = mb.y - SUN.y;
     const rPlanet = Math.hypot(dxSun, dySun) || 1;
@@ -290,7 +358,7 @@
       stages: cloneStages(),
       currentStageIndex: 0,
       crashed: false,
-      landed: true,           // start landed on Kerbette
+      landed: true,           // start landed on Astraia
       landedBody: mb,
       landedAltitude: surfaceAltitude,
       landedNormalAngle: normalAngle,
@@ -302,7 +370,7 @@
       lastPeriapsis: null,
       primaryBody: mb,
       orbitElements: null,
-      message: "On Kerbette's surface. Hold ↑ to lift off. Low thrust = long burns.",
+      message: "On " + mb.name + "'s surface. Hold ↑ to lift off. Low thrust = long burns.",
       trail: [],
       predictedPath: [],
       time: 0
@@ -376,24 +444,17 @@
       }
     }
 
-    // Transfer planner: choose destination body
-    if (e.code === "Digit1") {
-      transferTargetIndex = 1; // Kerbette
-      transferPlan = null;
-      state.message = "Transfer target: Kerbette";
-    }
-    if (e.code === "Digit2") {
-      transferTargetIndex = 2; // Munlet
-      transferPlan = null;
-      state.message = "Transfer target: Munlet";
-    }
-    if (e.code === "Digit3") {
-      transferTargetIndex = 3; // Duna-ish
-      transferPlan = null;
-      state.message = "Transfer target: Duna-ish";
-    }
+    // Transfer planner: choose destination body (planets 1–8)
+    if (e.code === "Digit1") setTransferTarget(1);
+    if (e.code === "Digit2") setTransferTarget(2);
+    if (e.code === "Digit3") setTransferTarget(3);
+    if (e.code === "Digit4") setTransferTarget(4);
+    if (e.code === "Digit5") setTransferTarget(5);
+    if (e.code === "Digit6") setTransferTarget(6);
+    if (e.code === "Digit7") setTransferTarget(7);
+    if (e.code === "Digit8") setTransferTarget(8);
 
-    // Transfer planner: compute Sun-centered Hohmann from current primary
+    // Transfer planner: compute Helion-centered Hohmann from current primary
     if (e.code === "KeyP") {
       createTransferPlan();
     }
@@ -456,7 +517,7 @@
   function update(dt) {
     state.time += dt;
 
-    // Move planets in their orbits around the Sun
+    // Move planets in their orbits around Helion
     updateBodyPositions(dt);
 
     const rocket = state.rocket;
@@ -476,7 +537,7 @@
       const body = state.landedBody || getPrimaryBody(rocket.x, rocket.y);
       state.landedBody = body;
 
-      // Body orbital velocity (assuming circular orbit around Sun)
+      // Body orbital velocity (assuming circular orbit around Helion)
       let bodyVx = 0;
       let bodyVy = 0;
       if (typeof body.orbitalRadius === "number") {
@@ -539,7 +600,7 @@
       rocket.thrusting = false;
     }
 
-    // Gravity from all bodies (Sun + planets)
+    // Gravity from all bodies (Helion + planets)
     let ax = 0;
     let ay = 0;
 
@@ -601,7 +662,7 @@
 
     if (collidedBody) {
       if (collidedBody === SUN || speed >= 3) {
-        // Always crash into the Sun; crash if too fast elsewhere
+        // Always crash into Helion; crash if too fast elsewhere
         state.crashed = true;
         state.message = "CRASH into " + collidedBody.name + "! Press R to retry.";
         return;
@@ -636,7 +697,7 @@
     const ry = rocket.y - body.y;
     const r = Math.hypot(rx, ry);
 
-    // Compute body's inertial velocity (for planets orbiting Sun)
+    // Compute body's inertial velocity (for planets orbiting Helion)
     let bodyVx = 0;
     let bodyVy = 0;
     if (typeof body.orbitalRadius === "number") {
@@ -750,7 +811,7 @@
     const destIndex = transferTargetIndex;
 
     if (originIndex <= 0 || destIndex <= 0) {
-      state.message = "Planner: origin and destination must be planets (not the Sun).";
+      state.message = "Planner: origin and destination must be planets (not Helion).";
       transferPlan = null;
       return;
     }
@@ -758,7 +819,7 @@
     const dest = BODIES[destIndex];
 
     if (typeof origin.orbitalRadius !== "number" || typeof dest.orbitalRadius !== "number") {
-      state.message = "Planner: both bodies must orbit the Sun.";
+      state.message = "Planner: both bodies must orbit Helion.";
       transferPlan = null;
       return;
     }
@@ -767,7 +828,7 @@
     const r2 = dest.orbitalRadius;
 
     if (r2 <= r1) {
-      state.message = "Planner: only inner→outer Hohmann supported (origin closer to Sun than destination).";
+      state.message = "Planner: only inner → outer Hohmann supported (origin closer to Helion than destination).";
       transferPlan = null;
       return;
     }
@@ -786,10 +847,10 @@
     const vTrans1 = Math.sqrt(mu * (2 / r1 - 1 / a_t));
     const vTrans2 = Math.sqrt(mu * (2 / r2 - 1 / a_t));
 
-    const deltaV1 = vTrans1 - v1; // departure burn magnitude
+    const deltaV1 = vTrans1 - v1; // departure burn
     const deltaV2 = v2 - vTrans2; // circularization at destination
 
-    // Use kinematic Sun-centered angular speeds from the simulation
+    // Use kinematic Helion-centered angular speeds from the simulation
     const omegaOrigin = origin.orbitalSpeed;
     const omegaDest = dest.orbitalSpeed;
 
@@ -814,7 +875,7 @@
       omegaDest
     };
 
-    state.message = "Planner: Hohmann " + origin.name + " → " + dest.name + " created. Aim to burn when phase error ≈ 0°.";
+    state.message = "Planner: Hohmann " + origin.name + " → " + dest.name + " created. Burn when phase error ≈ 0°.";
   }
 
   // --- Predictive path: coast-only under all-body gravity, with MOVING bodies ---
@@ -833,7 +894,7 @@
 
     const predicted = [];
 
-    // Fixed small timestep + MUCH longer horizon (~180 s)
+    // Fixed small timestep + horizon (~180 s)
     const dt = 0.05;          // seconds per integration step
     const steps = 3600;       // 3600 * 0.05 = 180 seconds of simulated future
     const maxRadius = SYSTEM_ESCAPE_RADIUS * 1.5;
@@ -854,7 +915,7 @@
     const predSun = predBodies[0]; // central reference
 
     for (let i = 0; i < steps; i++) {
-      // Advance orbital positions for bodies that orbit the Sun
+      // Advance orbital positions for bodies that orbit Helion
       for (let j = 1; j < predBodies.length; j++) {
         const pb = predBodies[j];
         if (typeof pb.orbitalRadius === "number" && typeof pb.orbitalSpeed === "number") {
@@ -932,7 +993,7 @@
       );
     }
 
-    // Orbital paths (routes) for planets that orbit the Sun
+    // Orbital paths (routes) for planets that orbit Helion
     ctx.save();
     ctx.strokeStyle = "rgba(255, 255, 255, 0.12)";
     ctx.lineWidth = 1;
@@ -957,7 +1018,7 @@
       const maxR = Math.max(r1, r2);
       const maxRPx = maxR * scale;
       if (maxRPx < SAFE_ORBIT_RADIUS_PX) {
-        const eTran = (r2 - r1) / (r2 + r1); // eccentricity for inner→outer Hohmann
+        const eTran = (r2 - r1) / (r2 + r1); // eccentricity for inner → outer Hohmann
 
         ctx.save();
         ctx.strokeStyle = "rgba(0, 255, 255, 0.8)";
@@ -1002,7 +1063,7 @@
       }
     }
 
-    // Bodies: Sun + planets
+    // Bodies: Helion + planets
     for (const body of BODIES) {
       ctx.save();
       const screen = worldToScreen(body.x, body.y);
