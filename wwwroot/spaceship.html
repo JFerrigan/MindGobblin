@@ -111,6 +111,10 @@
   }
 
   // --- Celestial bodies: Helion + orbiting planets ----------------------
+  // We'll blow up orbital radii by this factor to make a more
+  // "solar-system-ish" scale without changing planet sizes.
+  const ORBIT_SCALE = 50;
+
   const BODIES = [
     {
       // Central star
@@ -118,103 +122,112 @@
       x: 0,
       y: 0,
       radius: 1200,
+      // Kept high for nice orbital speeds; not literal solar GM.
       mu: 4.0176e7,
       atmosphere: 0,
       colors: { inner: "#fff7b3", mid: "#ffcc33", outer: "#d47a1a" }
     },
     {
-      // Homeworld – Earth-like
+      // Homeworld – Earth-like (~1 g)
       name: "Astraia",
-      orbitalRadius: 15000,
+      orbitalRadius: 15000 * ORBIT_SCALE,
       angle: 0,
       orbitalSpeed: 0,
       x: 0, y: 0,
       radius: 600,
-      mu: 3.6e5,
+      // μ = g * R^2 with g ≈ 9.81 m/s² = 0.00981 km/s²
+      mu: 3531.6,
       atmosphere: 40,
       colors: { inner: "#08384f", mid: "#0a5b32", outer: "#021016" }
     },
     {
-      // Rocky twilight world
+      // Rocky twilight world (~0.38 g, Mars-ish)
       name: "Nyxos",
-      orbitalRadius: 21000,
+      orbitalRadius: 21000 * ORBIT_SCALE,
       angle: 1.4,
       orbitalSpeed: 0,
       x: 0, y: 0,
       radius: 300,
-      mu: 6.0e4,
+      // g ≈ 3.71 m/s² => 0.00371 km/s²
+      mu: 333.9,
       atmosphere: 0,
       colors: { inner: "#30213b", mid: "#5b3e7a", outer: "#150d1f" }
     },
     {
-      // Ocean world
+      // Ocean world (slightly > 1 g)
       name: "Thalassa",
-      orbitalRadius: 28000,
+      orbitalRadius: 28000 * ORBIT_SCALE,
       angle: -2.0,
       orbitalSpeed: 0,
       x: 0, y: 0,
       radius: 700,
-      mu: 6.0e5,
+      // g ≈ 11.5 m/s² => 0.0115 km/s²
+      mu: 5635.0,
       atmosphere: 60,
       colors: { inner: "#0b3b6f", mid: "#1579c1", outer: "#031322" }
     },
     {
-      // Ember-toned desert
+      // Ember-toned desert (~0.8 g)
       name: "Emberon",
-      orbitalRadius: 36000,
+      orbitalRadius: 36000 * ORBIT_SCALE,
       angle: 2.6,
       orbitalSpeed: 0,
       x: 0, y: 0,
       radius: 260,
-      mu: 4.0e4,
+      // g ≈ 8.0 m/s² => 0.008 km/s²
+      mu: 540.8,
       atmosphere: 20,
       colors: { inner: "#5a2610", mid: "#c0551c", outer: "#280904" }
     },
     {
-      // Icy mirror world
+      // Icy mirror world (~0.6 g)
       name: "Mirr",
-      orbitalRadius: 48000,
+      orbitalRadius: 48000 * ORBIT_SCALE,
       angle: -1.1,
       orbitalSpeed: 0,
       x: 0, y: 0,
       radius: 400,
-      mu: 1.8e5,
+      // g ≈ 6.0 m/s² => 0.006 km/s²
+      mu: 960.0,
       atmosphere: 10,
       colors: { inner: "#d0e7ff", mid: "#7ca0c8", outer: "#1b2635" }
     },
     {
-      // Dark outer rock
+      // Dark outer rock (~0.16 g)
       name: "Umbral",
-      orbitalRadius: 65000,
+      orbitalRadius: 65000 * ORBIT_SCALE,
       angle: 0.9,
       orbitalSpeed: 0,
       x: 0, y: 0,
       radius: 320,
-      mu: 7.0e4,
+      // g ≈ 1.6 m/s² => 0.0016 km/s²
+      mu: 163.84,
       atmosphere: 0,
       colors: { inner: "#262b33", mid: "#4b5663", outer: "#090b0f" }
     },
     {
-      // Gas giant
+      // Gas giant (~Jupiter-ish)
       name: "Zephyrus",
-      orbitalRadius: 90000,
+      orbitalRadius: 90000 * ORBIT_SCALE,
       angle: -2.5,
       orbitalSpeed: 0,
       x: 0, y: 0,
       radius: 1000,
-      mu: 2.5e6,
+      // g ≈ 24.8 m/s² => 0.0248 km/s²
+      mu: 24800.0,
       atmosphere: 150,
       colors: { inner: "#30406b", mid: "#5b7fc0", outer: "#101525" }
     },
     {
       // Remote ice giant
       name: "Noxshade",
-      orbitalRadius: 130000,
+      orbitalRadius: 130000 * ORBIT_SCALE,
       angle: 0.3,
       orbitalSpeed: 0,
       x: 0, y: 0,
       radius: 800,
-      mu: 1.6e6,
+      // g ≈ 11.0 m/s² => 0.011 km/s²
+      mu: 7040.0,
       atmosphere: 120,
       colors: { inner: "#485f78", mid: "#7ca3d0", outer: "#0b1018" }
     }
@@ -239,6 +252,26 @@
 
   const SYSTEM_RADIUS = computeSystemRadius();
   const SYSTEM_ESCAPE_RADIUS = SYSTEM_RADIUS * 2.5;
+
+  // --- Starfield ---------------------------------------------------------
+  const STAR_COUNT = 600;
+  const STAR_FIELD_RADIUS = SYSTEM_RADIUS * 4;
+  const STARS = [];
+
+  (function initStars() {
+    STARS.length = 0;
+    for (let i = 0; i < STAR_COUNT; i++) {
+      // Polar distribution biased slightly toward center
+      const r = STAR_FIELD_RADIUS * Math.sqrt(Math.random());
+      const theta = Math.random() * Math.PI * 2;
+      STARS.push({
+        x: Math.cos(theta) * r,
+        y: Math.sin(theta) * r,
+        brightness: Math.random(),          // 0–1 for alpha variation
+        size: 0.5 + Math.random()          // relative size factor
+      });
+    }
+  })();
 
   function initOrbits() {
     for (let i = 1; i < BODIES.length; i++) {
@@ -289,14 +322,14 @@
       name: "Booster",
       maxFuel: 12000,
       fuel: 12000,
-      thrust: 320,
+      thrust: 32,     // 1/10 original
       dryMass: 6
     },
     {
       name: "Orbiter",
       maxFuel: 7000,
       fuel: 7000,
-      thrust: 100,
+      thrust: 10,     // 1/10 original
       dryMass: 3
     }
   ];
@@ -930,6 +963,22 @@
       );
     }
 
+    // --- Starfield background (world-space; reacts to pan & zoom) -------
+    ctx.save();
+    const baseStarSize = Math.max(0.5, Math.min(3, cameraZoom * 0.1)); // scales with zoom
+    for (const s of STARS) {
+      const p = worldToScreen(s.x, s.y);
+      // Slight padding; no need to draw way off-screen
+      if (p.x < -50 || p.x > w + 50 || p.y < -50 || p.y > h + 50) continue;
+      const alpha = 0.3 + s.brightness * 0.7;
+      ctx.globalAlpha = alpha;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, baseStarSize * s.size, 0, Math.PI * 2);
+      ctx.fillStyle = "#ffffff";
+      ctx.fill();
+    }
+    ctx.restore();
+
     // Orbital paths (Helion-centered dashed circles)
     ctx.save();
     ctx.strokeStyle = "rgba(255, 255, 255, 0.12)";
@@ -937,7 +986,7 @@
     ctx.setLineDash([3, 6]);
 
     const sunScreen = worldToScreen(SUN.x, SUN.y);
-    const maxOrbitScreenRadius = Math.max(w, h) * 1.2; // NEW: avoid giant off-screen circles
+    const maxOrbitScreenRadius = Math.max(w, h) * 1.2;
 
     for (const body of BODIES) {
       if (typeof body.orbitalRadius === "number") {
@@ -955,7 +1004,7 @@
       const { r1, r2, a_t, periAngle } = transferPlan;
       const maxR = Math.max(r1, r2);
       const maxRPx = maxR * scale;
-      const maxTransferRadius = Math.max(w, h) * 1.2; // NEW: cull huge transfer ellipses
+      const maxTransferRadius = Math.max(w, h) * 1.2;
 
       if (maxRPx < SAFE_ORBIT_RADIUS_PX && maxRPx < maxTransferRadius) {
         const eTran = (r2 - r1) / (r2 + r1);
@@ -1008,7 +1057,6 @@
       const screen = worldToScreen(body.x, body.y);
       const rPx = body.radius * scale;
 
-      // NEW: cull far-off bodies so we don't draw huge gradients off-screen
       const margin = Math.max(w, h) * 0.6 + rPx;
       if (screen.x < -margin || screen.x > w + margin ||
           screen.y < -margin || screen.y > h + margin) {
@@ -1115,8 +1163,7 @@
       ctx.restore();
     }
 
-    // Apsis markers
-        // Apsis markers + analytic orbit ellipse for current bound orbit
+    // Apsis markers + analytic orbit ellipse for current bound orbit
     if (state.orbitBound && state.orbitElements) {
       const oe = state.orbitElements;
 
@@ -1126,7 +1173,6 @@
 
       // --- Orbit ellipse line (osculating orbit around primary body) ---
       (function drawOrbitEllipse() {
-        // Semi-major axis and eccentricity from stored radii
         const rp = oe.periRadius;
         const ra = oe.apoRadius;
         const a  = (rp + ra) / 2;
@@ -1134,14 +1180,12 @@
 
         let e = 1 - rp / a;
         if (!isFinite(e) || e < 0) e = 0;
-        if (e > 0.999) e = 0.999; // avoid extreme degeneracy
+        if (e > 0.999) e = 0.999;
 
-        // Cull absurdly large ellipses
         const maxR = ra;
         const maxRPx = maxR * scale;
         if (maxRPx < 1 || maxRPx > SAFE_ORBIT_RADIUS_PX) return;
 
-        // Direction from body center to periapsis = major axis direction
         let px = oe.periX - oe.bodyX;
         let py = oe.periY - oe.bodyY;
         let plen = Math.hypot(px, py);
@@ -1149,11 +1193,11 @@
 
         const pHatX = px / plen;
         const pHatY = py / plen;
-        const qHatX = -pHatY;  // perpendicular in orbital plane
+        const qHatX = -pHatY;
         const qHatY =  pHatX;
 
         ctx.save();
-        ctx.strokeStyle = "rgba(80,180,255,0.9)"; // orbit line color
+        ctx.strokeStyle = "rgba(80,180,255,0.9)";
         ctx.lineWidth = 1;
         ctx.setLineDash([4, 2]);
 
@@ -1161,9 +1205,9 @@
         let started = false;
         let prevOnScreen = false;
 
-        const steps = 240; // smooth ellipse
+        const steps = 240;
         for (let i = 0; i <= steps; i++) {
-          const f = (2 * Math.PI * i) / steps; // true anomaly
+          const f = (2 * Math.PI * i) / steps;
           const r = a * (1 - e * e) / (1 + e * Math.cos(f));
           if (!isFinite(r) || r <= 0) continue;
 
@@ -1207,7 +1251,6 @@
         ctx.setLineDash([]);
         ctx.lineWidth = 1;
 
-        // Lines from body to apsides
         ctx.strokeStyle = "rgba(0,255,136,0.5)";
         ctx.beginPath();
         if (screenWithinBounds(bodyScreen) && screenWithinBounds(periScreen)) {
@@ -1220,7 +1263,6 @@
         }
         ctx.stroke();
 
-        // Periapsis marker
         if (screenWithinBounds(periScreen)) {
           ctx.fillStyle = "#00ff88";
           ctx.beginPath();
@@ -1233,7 +1275,6 @@
           ctx.fillText("Pe", periScreen.x + 6, periScreen.y - 2);
         }
 
-        // Apoapsis marker
         if (screenWithinBounds(apoScreen)) {
           ctx.fillStyle = "#ff66ff";
           ctx.beginPath();
@@ -1249,7 +1290,6 @@
         ctx.restore();
       }
     }
-
 
     // Rocket
     const rocket = state.rocket;
