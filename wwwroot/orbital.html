@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>2D Kerbal-Style Orbit Game – Helion System</title>
+<title>Orbital Simulation – The Helion System</title>
 <style>
   html, body {
     margin: 0;
@@ -43,7 +43,8 @@
 <div id="help">
   Controls: ← → rotate · ↑ thrust / takeoff · SPACE stage · R reset · [ / ] time warp · - / = zoom · F follow/free<br>
   Mouse wheel zooms · Drag to pan (free cam) · Dashed path = coast-only trajectory under moving Helion + planet gravity.<br>
-  Transfer planner: 1–8 select target planet · P plan Helion-centered Hohmann (inner → outer only)
+  Transfer planner: 1–8 select target planet · P plan Helion-centered Hohmann (inner → outer only) · O toggle Sun orbit overlay
+
 </div>
 
 <script>
@@ -81,9 +82,11 @@
   let dragStartCamX = 0;
   let dragStartCamY = 0;
 
-  // --- Transfer planner state -------------------------------------------
+    // --- Transfer planner state -------------------------------------------
   let transferTargetIndex = 3;  // default target
   let transferPlan = null;
+  let showSunOrbit = true;
+
 
   function normalizeAngle(a) {
     const twoPi = Math.PI * 2;
@@ -392,6 +395,8 @@
       lastPeriapsis: null,
       primaryBody: mb,
       orbitElements: null,
+      sunOrbitBound: false,
+      sunOrbitElements: null,
       message: "On " + mb.name + "'s surface. Hold ↑ to lift off. Low thrust = long burns.",
       trail: [],
       predictedPath: [],
@@ -460,6 +465,12 @@
       } else {
         state.message = "Camera: free";
       }
+    }
+
+    // Toggle Helion (Sun) orbit overlay
+    if (e.code === "KeyO") {
+      showSunOrbit = !showSunOrbit;
+      state.message = "Sun orbit overlay: " + (showSunOrbit ? "ON" : "OFF");
     }
 
     if (e.code === "Digit1") setTransferTarget(1);
@@ -804,16 +815,80 @@
           state.message = "Stable orbit around " + body.name + " achieved!";
         }
       }
-    } else {
+       } else {
       state.lastPeriapsis = null;
     }
 
+    // --- Helion (Sun)-centric orbit for overlay ------------------------
+    {
+      const sx = rocket.x - SUN.x;
+      const sy = rocket.y - SUN.y;
+      const rSun = Math.hypot(sx, sy);
+      const vxSun = rocket.vx;
+      const vySun = rocket.vy;
+      const muSun = SUN.mu;
+
+      const v2Sun = vxSun * vxSun + vySun * vySun;
+      const epsSun = 0.5 * v2Sun - muSun / rSun;
+
+      state.sunOrbitBound = false;
+      state.sunOrbitElements = null;
+
+      if (epsSun < 0) {
+        const hSun = sx * vySun - sy * vxSun;
+        const aSun = -muSun / (2 * epsSun);
+        let e2Sun = 1 - (hSun * hSun) / (aSun * muSun);
+        if (e2Sun < 0) e2Sun = 0;
+        const eSun = Math.sqrt(e2Sun);
+        const rpSun = aSun * (1 - eSun);
+        const raSun = aSun * (1 + eSun);
+
+        if (isFinite(aSun) && eSun >= 0) {
+          const rdotvSun = sx * vxSun + sy * vySun;
+          const factor1 = (v2Sun - muSun / rSun) / muSun;
+          const factor2 = rdotvSun / muSun;
+
+          let exSun = factor1 * sx - factor2 * vxSun;
+          let eySun = factor1 * sy - factor2 * vySun;
+          let emagSun = Math.hypot(exSun, eySun);
+          if (emagSun < 1e-6) {
+            exSun = sx / rSun;
+            eySun = sy / rSun;
+            emagSun = 1;
+          }
+
+          const ehatxSun = exSun / emagSun;
+          const ehatySun = eySun / emagSun;
+
+          const periXSun = SUN.x + ehatxSun * rpSun;
+          const periYSun = SUN.y + ehatySun * rpSun;
+          const apoXSun  = SUN.x - ehatxSun * raSun;
+          const apoYSun  = SUN.y - ehatySun * raSun;
+
+          state.sunOrbitBound = true;
+          state.sunOrbitElements = {
+            bodyName: SUN.name,
+            bodyX: SUN.x,
+            bodyY: SUN.y,
+            periRadius: rpSun,
+            apoRadius: raSun,
+            periX: periXSun,
+            periY: periYSun,
+            apoX: apoXSun,
+            apoY: apoYSun
+          };
+        }
+      }
+    }
+
+    // System escape check
     const distFromOrigin = Math.hypot(rocket.x, rocket.y);
     if (!state.escaped && distFromOrigin > SYSTEM_ESCAPE_RADIUS) {
       state.escaped = true;
       state.message = "You escaped the system! Press R to restart.";
     }
   }
+
 
   // --- Hohmann transfer planner -----------------------------------------
   function createTransferPlan() {
@@ -1440,6 +1515,134 @@
         ctx.restore();
       }
     }
+
+        // Sun-centric (Helion) orbit ellipse + Pe/Ap overlay (toggleable)
+    if (showSunOrbit && state.sunOrbitBound && state.sunOrbitElements && state.primaryBody !== SUN) {
+      const oeS = state.sunOrbitElements;
+
+      const periScreenS = worldToScreen(oeS.periX, oeS.periY);
+      const apoScreenS  = worldToScreen(oeS.apoX, oeS.apoY);
+      const bodyScreenS = worldToScreen(oeS.bodyX, oeS.bodyY);
+
+      (function drawSunOrbitEllipse() {
+        const rpS = oeS.periRadius;
+        const raS = oeS.apoRadius;
+        const aS  = (rpS + raS) / 2;
+        if (!isFinite(aS) || aS <= 0) return;
+
+        let eS = 1 - rpS / aS;
+        if (!isFinite(eS) || eS < 0) eS = 0;
+        if (eS > 0.999) eS = 0.999;
+
+        const maxR = raS;
+        const maxRPx = maxR * scale;
+        if (maxRPx < 1 || maxRPx > SAFE_ORBIT_RADIUS_PX) return;
+
+        let pxS = oeS.periX - oeS.bodyX;
+        let pyS = oeS.periY - oeS.bodyY;
+        let plenS = Math.hypot(pxS, pyS);
+        if (plenS < 1e-6) return;
+
+        const pHatXS = pxS / plenS;
+        const pHatYS = pyS / plenS;
+        const qHatXS = -pHatYS;
+        const qHatYS =  pHatXS;
+
+        ctx.save();
+        ctx.strokeStyle = "rgba(0,255,200,0.8)"; // cyan-ish for Helion orbit
+        ctx.lineWidth = 1;
+        ctx.setLineDash([6, 3]);
+
+        ctx.beginPath();
+        let started = false;
+        let prevOnScreen = false;
+
+        const steps = 260;
+        for (let i = 0; i <= steps; i++) {
+          const f = (2 * Math.PI * i) / steps;
+          const r = aS * (1 - eS * eS) / (1 + eS * Math.cos(f));
+          if (!isFinite(r) || r <= 0) continue;
+
+          const cosf = Math.cos(f);
+          const sinf = Math.sin(f);
+
+          const worldX =
+            oeS.bodyX + r * (cosf * pHatXS + sinf * qHatXS);
+          const worldY =
+            oeS.bodyY + r * (cosf * pHatYS + sinf * qHatYS);
+
+          const p = worldToScreen(worldX, worldY);
+          const onScreen =
+            p.x >= -50 && p.x <= w + 50 &&
+            p.y >= -50 && p.y <= h + 50;
+
+          if (!onScreen) {
+            prevOnScreen = false;
+            continue;
+          }
+
+          if (!started) {
+            ctx.moveTo(p.x, p.y);
+            started = true;
+          } else if (!prevOnScreen) {
+            ctx.moveTo(p.x, p.y);
+          } else {
+            ctx.lineTo(p.x, p.y);
+          }
+
+          prevOnScreen = true;
+        }
+
+        ctx.stroke();
+        ctx.restore();
+      })();
+
+      if (screenWithinBounds(periScreenS) || screenWithinBounds(apoScreenS) || screenWithinBounds(bodyScreenS)) {
+        ctx.save();
+        ctx.setLineDash([]);
+        ctx.lineWidth = 1;
+
+        // Lines from Helion to Sun Pe/Ap
+        ctx.strokeStyle = "rgba(0,255,200,0.4)";
+        ctx.beginPath();
+        if (screenWithinBounds(bodyScreenS) && screenWithinBounds(periScreenS)) {
+          ctx.moveTo(bodyScreenS.x, bodyScreenS.y);
+          ctx.lineTo(periScreenS.x, periScreenS.y);
+        }
+        if (screenWithinBounds(bodyScreenS) && screenWithinBounds(apoScreenS)) {
+          ctx.moveTo(bodyScreenS.x, bodyScreenS.y);
+          ctx.lineTo(apoScreenS.x, apoScreenS.y);
+        }
+        ctx.stroke();
+
+        // Periapsis marker (Sun)
+        if (screenWithinBounds(periScreenS)) {
+          ctx.fillStyle = "#00ffd5";
+          ctx.beginPath();
+          ctx.arc(periScreenS.x, periScreenS.y, 4, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.font = "11px system-ui";
+          ctx.textAlign = "left";
+          ctx.textBaseline = "bottom";
+          ctx.fillText("Pe☉", periScreenS.x + 6, periScreenS.y - 2);
+        }
+
+        // Apoapsis marker (Sun)
+        if (screenWithinBounds(apoScreenS)) {
+          ctx.fillStyle = "#ff99ff";
+          ctx.beginPath();
+          ctx.arc(apoScreenS.x, apoScreenS.y, 4, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.font = "11px system-ui";
+          ctx.textAlign = "left";
+          ctx.textBaseline = "bottom";
+          ctx.fillText("Ap☉", apoScreenS.x + 6, apoScreenS.y - 2);
+        }
+
+        ctx.restore();
+      }
+    }
+
 
     // Rocket
     const rocket = state.rocket;
