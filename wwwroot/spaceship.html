@@ -114,6 +114,10 @@
   // Scale orbital radii up to get a larger "solar system".
   const ORBIT_SCALE = 50;
 
+    // Ignore gravitational contributions that are tiny compared to the strongest pull
+  const GRAV_PERTURB_THRESHOLD = 0.03; // 3% of dominant acceleration
+
+
   const BODIES = [
     {
       // Central star
@@ -601,17 +605,41 @@
       rocket.thrusting = false;
     }
 
-    let ax = 0;
+        let ax = 0;
     let ay = 0;
 
+    // 1) Find the strongest gravitational pull at the rocket's position
+    let dominantAccMag = 0;
     for (const body of BODIES) {
       const dx = rocket.x - body.x;
       const dy = rocket.y - body.y;
       const r = Math.hypot(dx, dy);
-      const gravAccMag = -body.mu / (r * r);
+      if (r <= 1e-3) continue; // avoid divide-by-zero if we're basically at the center
+      const gMag = body.mu / (r * r);
+      if (!isFinite(gMag)) continue;
+      if (gMag > dominantAccMag) dominantAccMag = gMag;
+    }
+
+    // 2) Apply gravity only from bodies that matter (>= a few % of dominant)
+    for (const body of BODIES) {
+      const dx = rocket.x - body.x;
+      const dy = rocket.y - body.y;
+      const r = Math.hypot(dx, dy);
+      if (r <= 1e-3) continue;
+
+      const gMag = body.mu / (r * r);
+      if (!isFinite(gMag)) continue;
+
+      // If this body's pull is tiny compared to the dominant one, ignore it
+      if (dominantAccMag > 0 && gMag < dominantAccMag * GRAV_PERTURB_THRESHOLD) {
+        continue;
+      }
+
+      const gravAccMag = -gMag;
       ax += gravAccMag * (dx / r);
       ay += gravAccMag * (dy / r);
     }
+
 
     if (rocket.thrusting && stage && stage.fuel > 0) {
       const mass = rocketMass();
@@ -916,19 +944,43 @@
       const distFromOrigin = Math.hypot(x, y);
       if (distFromOrigin > maxRadius) break;
 
-      let ax = 0;
+            let ax = 0;
       let ay = 0;
+
+      // 1) Dominant gravity at the predicted position
+      let dominantAccMag = 0;
       for (const body of predBodies) {
         const dx = x - body.x;
         const dy = y - body.y;
         const r = Math.hypot(dx, dy);
-        const gravAccMag = -body.mu / (r * r);
+        if (r <= 1e-3) continue;
+        const gMag = body.mu / (r * r);
+        if (!isFinite(gMag)) continue;
+        if (gMag > dominantAccMag) dominantAccMag = gMag;
+      }
+
+      // 2) Apply only significant contributors
+      for (const body of predBodies) {
+        const dx = x - body.x;
+        const dy = y - body.y;
+        const r = Math.hypot(dx, dy);
+        if (r <= 1e-3) continue;
+
+        const gMag = body.mu / (r * r);
+        if (!isFinite(gMag)) continue;
+
+        if (dominantAccMag > 0 && gMag < dominantAccMag * GRAV_PERTURB_THRESHOLD) {
+          continue;
+        }
+
+        const gravAccMag = -gMag;
         ax += gravAccMag * (dx / r);
         ay += gravAccMag * (dy / r);
       }
 
       vx += ax * dt;
       vy += ay * dt;
+
       x += vx * dt;
       y += vy * dt;
 
