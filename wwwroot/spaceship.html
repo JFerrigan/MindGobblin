@@ -64,16 +64,16 @@
   // --- Time warp ---------------------------------------------------------
   let timeScale = 1;
   const MIN_WARP = 0.1;
-  const MAX_WARP = 500;
+  const MAX_WARP = 50000;   // allow very high warp
 
   // --- Camera: zoom, pan, follow ----------------------------------------
-  let cameraZoom = 8;            // higher default to keep planets visible with big system
+  let cameraZoom = 8;
   const MIN_ZOOM = 0.25;
-  const MAX_ZOOM = 1000;         // allow ~1000x zoom
+  const MAX_ZOOM = 100000;
 
   let cameraX = 0;
   let cameraY = 0;
-  let cameraFollow = true; // follow ship by default
+  let cameraFollow = true;
 
   let isDragging = false;
   let dragStartX = 0;
@@ -83,7 +83,7 @@
 
   // --- Transfer planner state -------------------------------------------
   let transferTargetIndex = 3;  // default target
-  let transferPlan = null;      // populated by createTransferPlan()
+  let transferPlan = null;
 
   function normalizeAngle(a) {
     const twoPi = Math.PI * 2;
@@ -111,8 +111,7 @@
   }
 
   // --- Celestial bodies: Helion + orbiting planets ----------------------
-  // We'll blow up orbital radii by this factor to make a more
-  // "solar-system-ish" scale without changing planet sizes.
+  // Scale orbital radii up to get a larger "solar system".
   const ORBIT_SCALE = 50;
 
   const BODIES = [
@@ -122,8 +121,7 @@
       x: 0,
       y: 0,
       radius: 1200,
-      // Kept high for nice orbital speeds; not literal solar GM.
-      mu: 4.0176e7,
+      mu: 4.0176e7,      // high for nice orbital speeds
       atmosphere: 0,
       colors: { inner: "#fff7b3", mid: "#ffcc33", outer: "#d47a1a" }
     },
@@ -135,8 +133,7 @@
       orbitalSpeed: 0,
       x: 0, y: 0,
       radius: 600,
-      // μ = g * R^2 with g ≈ 9.81 m/s² = 0.00981 km/s²
-      mu: 3531.6,
+      mu: 3531.6,        // g ≈ 9.81 m/s²
       atmosphere: 40,
       colors: { inner: "#08384f", mid: "#0a5b32", outer: "#021016" }
     },
@@ -148,7 +145,6 @@
       orbitalSpeed: 0,
       x: 0, y: 0,
       radius: 300,
-      // g ≈ 3.71 m/s² => 0.00371 km/s²
       mu: 333.9,
       atmosphere: 0,
       colors: { inner: "#30213b", mid: "#5b3e7a", outer: "#150d1f" }
@@ -161,20 +157,18 @@
       orbitalSpeed: 0,
       x: 0, y: 0,
       radius: 700,
-      // g ≈ 11.5 m/s² => 0.0115 km/s²
       mu: 5635.0,
       atmosphere: 60,
       colors: { inner: "#0b3b6f", mid: "#1579c1", outer: "#031322" }
     },
     {
-      // Ember-toned desert (~0.8 g)
+      // Ember desert (~0.8 g)
       name: "Emberon",
       orbitalRadius: 36000 * ORBIT_SCALE,
       angle: 2.6,
       orbitalSpeed: 0,
       x: 0, y: 0,
       radius: 260,
-      // g ≈ 8.0 m/s² => 0.008 km/s²
       mu: 540.8,
       atmosphere: 20,
       colors: { inner: "#5a2610", mid: "#c0551c", outer: "#280904" }
@@ -187,7 +181,6 @@
       orbitalSpeed: 0,
       x: 0, y: 0,
       radius: 400,
-      // g ≈ 6.0 m/s² => 0.006 km/s²
       mu: 960.0,
       atmosphere: 10,
       colors: { inner: "#d0e7ff", mid: "#7ca0c8", outer: "#1b2635" }
@@ -200,20 +193,18 @@
       orbitalSpeed: 0,
       x: 0, y: 0,
       radius: 320,
-      // g ≈ 1.6 m/s² => 0.0016 km/s²
       mu: 163.84,
       atmosphere: 0,
       colors: { inner: "#262b33", mid: "#4b5663", outer: "#090b0f" }
     },
     {
-      // Gas giant (~Jupiter-ish)
+      // Gas giant
       name: "Zephyrus",
       orbitalRadius: 90000 * ORBIT_SCALE,
       angle: -2.5,
       orbitalSpeed: 0,
       x: 0, y: 0,
       radius: 1000,
-      // g ≈ 24.8 m/s² => 0.0248 km/s²
       mu: 24800.0,
       atmosphere: 150,
       colors: { inner: "#30406b", mid: "#5b7fc0", outer: "#101525" }
@@ -226,7 +217,6 @@
       orbitalSpeed: 0,
       x: 0, y: 0,
       radius: 800,
-      // g ≈ 11.0 m/s² => 0.011 km/s²
       mu: 7040.0,
       atmosphere: 120,
       colors: { inner: "#485f78", mid: "#7ca3d0", outer: "#0b1018" }
@@ -234,7 +224,7 @@
   ];
 
   const SUN = BODIES[0];
-  const MAIN_BODY = BODIES[1]; // launch from Astraia
+  const MAIN_BODY = BODIES[1];
 
   function computeSystemRadius() {
     let max = 0;
@@ -254,21 +244,21 @@
   const SYSTEM_ESCAPE_RADIUS = SYSTEM_RADIUS * 2.5;
 
   // --- Starfield ---------------------------------------------------------
-  const STAR_COUNT = 600;
-  const STAR_FIELD_RADIUS = SYSTEM_RADIUS * 4;
+  // Denser + closer so we see stars when zoomed in.
+  const STAR_COUNT = 2000;
+  const STAR_FIELD_RADIUS = SYSTEM_RADIUS * 2;
   const STARS = [];
 
   (function initStars() {
     STARS.length = 0;
     for (let i = 0; i < STAR_COUNT; i++) {
-      // Polar distribution biased slightly toward center
       const r = STAR_FIELD_RADIUS * Math.sqrt(Math.random());
       const theta = Math.random() * Math.PI * 2;
       STARS.push({
         x: Math.cos(theta) * r,
         y: Math.sin(theta) * r,
-        brightness: Math.random(),          // 0–1 for alpha variation
-        size: 0.5 + Math.random()          // relative size factor
+        brightness: Math.random(),
+        size: 0.7 + Math.random()
       });
     }
   })();
@@ -322,19 +312,27 @@
       name: "Booster",
       maxFuel: 12000,
       fuel: 12000,
-      thrust: 32,     // 1/10 original
+      thrust: 32,   // 1/10 original
       dryMass: 6
     },
     {
       name: "Orbiter",
       maxFuel: 7000,
       fuel: 7000,
-      thrust: 10,     // 1/10 original
+      thrust: 10,   // 1/10 original
       dryMass: 3
     }
   ];
 
   const ROT_SPEED = (Math.PI / 180) * 60; // rad/s
+
+  // Rotation warp cap: spin scales with warp up to this, then stops
+  function getSpinFactor() {
+    const WARP_SPIN_CAP = 8; // feels good; tweak if you want
+    if (timeScale <= 1) return 1;
+    const effective = Math.min(timeScale, WARP_SPIN_CAP);
+    return effective / timeScale;
+  }
 
   let state;
 
@@ -534,12 +532,14 @@
     const stage = currentStage();
     if (!rocket) return;
 
+    const spinFactor = getSpinFactor();
+
     if (state.landed && !state.crashed && !state.escaped) {
       if (keys["ArrowLeft"] || keys["KeyA"]) {
-        rocket.angle += ROT_SPEED * dt;
+        rocket.angle += ROT_SPEED * dt * spinFactor;
       }
       if (keys["ArrowRight"] || keys["KeyD"]) {
-        rocket.angle -= ROT_SPEED * dt;
+        rocket.angle -= ROT_SPEED * dt * spinFactor;
       }
 
       const body = state.landedBody || getPrimaryBody(rocket.x, rocket.y);
@@ -589,10 +589,10 @@
     }
 
     if (keys["ArrowLeft"] || keys["KeyA"]) {
-      rocket.angle += ROT_SPEED * dt;
+      rocket.angle += ROT_SPEED * dt * spinFactor;
     }
     if (keys["ArrowRight"] || keys["KeyD"]) {
-      rocket.angle -= ROT_SPEED * dt;
+      rocket.angle -= ROT_SPEED * dt * spinFactor;
     }
 
     if (stage && stage.fuel > 0) {
@@ -872,9 +872,10 @@
 
     const predicted = [];
 
-    const dt = 0.05;
-    const steps = 3600;
-    const maxRadius = SYSTEM_ESCAPE_RADIUS * 1.5;
+    // Longer horizon + slightly larger max radius to match blown-up system.
+    const dt = 0.1;
+    const steps = 10000;                 // 10000 * 0.1 = 1000 seconds
+    const maxRadius = SYSTEM_ESCAPE_RADIUS * 3;
 
     const predBodies = BODIES.map(b => ({
       name: b.name,
@@ -963,21 +964,26 @@
       );
     }
 
-    // --- Starfield background (world-space; reacts to pan & zoom) -------
+    // --- Starfield background -------------------------------------------
+        // --- Starfield background -------------------------------------------
     ctx.save();
-    const baseStarSize = Math.max(0.5, Math.min(3, cameraZoom * 0.1)); // scales with zoom
+    // Smaller stars overall; they grow slightly as you zoom in, but stay tiny when zoomed out
+    const baseStarSize = 0.45 + 0.18 * Math.log10(1 + cameraZoom); // ~0.45 → ~1px typical
     for (const s of STARS) {
       const p = worldToScreen(s.x, s.y);
-      // Slight padding; no need to draw way off-screen
       if (p.x < -50 || p.x > w + 50 || p.y < -50 || p.y > h + 50) continue;
-      const alpha = 0.3 + s.brightness * 0.7;
+
+      const alpha = 0.25 + s.brightness * 0.6;
+      const r = baseStarSize * (0.6 + 0.8 * s.size); // keep variety but keep them small
+
       ctx.globalAlpha = alpha;
       ctx.beginPath();
-      ctx.arc(p.x, p.y, baseStarSize * s.size, 0, Math.PI * 2);
+      ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
       ctx.fillStyle = "#ffffff";
       ctx.fill();
     }
     ctx.restore();
+
 
     // Orbital paths (Helion-centered dashed circles)
     ctx.save();
@@ -1051,63 +1057,157 @@
       }
     }
 
-    // Bodies: Helion + planets
+         // Bodies: Helion + planets
     for (const body of BODIES) {
       ctx.save();
       const screen = worldToScreen(body.x, body.y);
       const rPx = body.radius * scale;
 
-      const margin = Math.max(w, h) * 0.6 + rPx;
+      // Icon mode when zoomed way out so planets stay visible
+      const MIN_ICON_RADIUS = 3;
+      const useIcon = rPx < MIN_ICON_RADIUS * 2;
+      const drawRadius = useIcon ? MIN_ICON_RADIUS : rPx;
+
+      // Culling based on what we'll actually draw
+      const margin = Math.max(w, h) * 0.6 + drawRadius;
       if (screen.x < -margin || screen.x > w + margin ||
           screen.y < -margin || screen.y > h + margin) {
         ctx.restore();
         continue;
       }
 
-      const grd = ctx.createRadialGradient(
-        screen.x - rPx * 0.3,
-        screen.y - rPx * 0.3,
-        rPx * 0.2,
-        screen.x,
-        screen.y,
-        rPx
-      );
-      const c = body.colors;
-      grd.addColorStop(0, c.inner);
-      grd.addColorStop(0.5, c.mid);
-      grd.addColorStop(1, c.outer);
+      if (useIcon) {
+        // Tiny map-style dot, lightly colored
+        const midColor = (body.colors && body.colors.mid) || "#ffffff";
+        ctx.fillStyle = (body === SUN) ? "#ffd080" : midColor;
+        ctx.beginPath();
+        ctx.arc(screen.x, screen.y, drawRadius, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        const c = body.colors;
+        const planetRadius = drawRadius;
 
-      ctx.fillStyle = grd;
-      ctx.beginPath();
-      ctx.arc(screen.x, screen.y, rPx, 0, Math.PI * 2);
-      ctx.fill();
+        // Base disc with soft lighting
+        const coreGradient = ctx.createRadialGradient(
+          screen.x - planetRadius * 0.35,
+          screen.y - planetRadius * 0.35,
+          planetRadius * 0.2,
+          screen.x,
+          screen.y,
+          planetRadius
+        );
+        coreGradient.addColorStop(0, c.inner);
+        coreGradient.addColorStop(0.5, c.mid);
+        coreGradient.addColorStop(1, c.outer);
 
-      const atmo = body.atmosphere || 0;
-      if (atmo > 0) {
-        const atmoRadiusPx = (body.radius + atmo) * scale;
-        if (atmoRadiusPx < SAFE_ORBIT_RADIUS_PX) {
-          ctx.strokeStyle = "rgba(80,200,255,0.25)";
-          ctx.lineWidth = 1;
+        ctx.fillStyle = coreGradient;
+        ctx.beginPath();
+        ctx.arc(screen.x, screen.y, planetRadius, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Rim light / specular highlight
+        const rimGrad = ctx.createRadialGradient(
+          screen.x + planetRadius * 0.2,
+          screen.y - planetRadius * 0.4,
+          planetRadius * 0.6,
+          screen.x,
+          screen.y,
+          planetRadius * 1.3
+        );
+        rimGrad.addColorStop(0, "rgba(255,255,255,0.35)");
+        rimGrad.addColorStop(0.4, "rgba(255,255,255,0.10)");
+        rimGrad.addColorStop(1, "rgba(255,255,255,0)");
+        ctx.fillStyle = rimGrad;
+        ctx.beginPath();
+        ctx.arc(screen.x, screen.y, planetRadius, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Special banding for gas/ice giants
+        if (body.name === "Zephyrus" || body.name === "Noxshade") {
+          ctx.save();
+          // Clip to planet disc
           ctx.beginPath();
-          ctx.arc(screen.x, screen.y, atmoRadiusPx, 0, Math.PI * 2);
-          ctx.stroke();
+          ctx.arc(screen.x, screen.y, planetRadius, 0, Math.PI * 2);
+          ctx.clip();
+
+          const bandCount = 6;
+          for (let i = 0; i < bandCount; i++) {
+            const t = i / (bandCount - 1);
+            const y = screen.y - planetRadius + t * 2 * planetRadius;
+
+            const bandGrad = ctx.createLinearGradient(
+              screen.x - planetRadius, y,
+              screen.x + planetRadius, y
+            );
+            const base = body.colors.mid;
+            bandGrad.addColorStop(0, base);
+            bandGrad.addColorStop(0.5, "rgba(255,255,255,0.18)");
+            bandGrad.addColorStop(1, base);
+
+            ctx.fillStyle = bandGrad;
+            ctx.globalAlpha = 0.16 + 0.08 * Math.sin(t * Math.PI);
+            ctx.fillRect(
+              screen.x - planetRadius,
+              y - planetRadius / bandCount,
+              planetRadius * 2,
+              (2 * planetRadius) / bandCount
+            );
+          }
+          ctx.restore();
+          ctx.globalAlpha = 1;
+        }
+
+        // Thin atmospheric glow if present
+        const atmo = body.atmosphere || 0;
+        if (atmo > 0) {
+          const atmoRadiusPx = (body.radius + atmo) * scale;
+          if (atmoRadiusPx < SAFE_ORBIT_RADIUS_PX) {
+            const atmoGrad = ctx.createRadialGradient(
+              screen.x,
+              screen.y,
+              planetRadius,
+              screen.x,
+              screen.y,
+              atmoRadiusPx
+            );
+            atmoGrad.addColorStop(0, "rgba(135,206,255,0.0)");
+            atmoGrad.addColorStop(1, "rgba(135,206,255,0.35)");
+
+            ctx.strokeStyle = atmoGrad;
+            ctx.lineWidth = Math.max(1, atmoRadiusPx - planetRadius);
+            ctx.beginPath();
+            ctx.arc(
+              screen.x,
+              screen.y,
+              (planetRadius + atmoRadiusPx) / 2,
+              0,
+              Math.PI * 2
+            );
+            ctx.stroke();
+          }
         }
       }
 
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "11px system-ui";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "top";
-      ctx.fillText(body.name, screen.x, screen.y + rPx + 4);
+      // Labels – hide when super zoomed-out icon mode to avoid clutter
+      if (!useIcon || cameraZoom > 0.4) {
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "11px system-ui";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "top";
+        ctx.fillText(body.name, screen.x, screen.y + drawRadius + 4);
+      }
+
       ctx.restore();
     }
 
-    // Predicted trajectory
+
+
+    // Predicted trajectory (thicker + visible across zoom levels)
     if (state.predictedPath && state.predictedPath.length > 1) {
       ctx.save();
-      ctx.lineWidth = 1;
-      ctx.strokeStyle = "rgba(255, 255, 0, 0.8)";
       ctx.setLineDash([6, 4]);
+      ctx.lineWidth = Math.max(1, Math.min(3, cameraZoom * 0.15));
+      ctx.strokeStyle = "rgba(255, 255, 0, 0.9)";
       ctx.beginPath();
       let started = false;
       let prevOnScreen = false;
@@ -1171,7 +1271,6 @@
       const apoScreen  = worldToScreen(oe.apoX, oe.apoY);
       const bodyScreen = worldToScreen(oe.bodyX, oe.bodyY);
 
-      // --- Orbit ellipse line (osculating orbit around primary body) ---
       (function drawOrbitEllipse() {
         const rp = oe.periRadius;
         const ra = oe.apoRadius;
@@ -1245,7 +1344,6 @@
         ctx.restore();
       })();
 
-      // --- Apsis lines + markers ---------------------------------------
       if (screenWithinBounds(periScreen) || screenWithinBounds(apoScreen) || screenWithinBounds(bodyScreen)) {
         ctx.save();
         ctx.setLineDash([]);
@@ -1418,28 +1516,72 @@
   }
 
   // --- Main loop ---------------------------------------------------------
-  let lastTime = performance.now();
-  function loop(now) {
-    const realDt = (now - lastTime) / 1000;
-    lastTime = now;
+// --- Main loop ---------------------------------------------------------
+let lastTime = performance.now();
+let frameCounter = 0;
 
-    let dtRemaining = Math.max(0, realDt * timeScale);
-    const maxStep = 0.05;
-    const maxStepsPerFrame = 100;
-    let steps = 0;
+function loop(now) {
+  frameCounter++;
 
-    while (dtRemaining > 0 && steps < maxStepsPerFrame) {
-      const step = Math.min(maxStep, dtRemaining);
-      update(step);
-      dtRemaining -= step;
-      steps++;
+  const realDt = (now - lastTime) / 1000;
+  lastTime = now;
+
+  // How much simulation time we *want* to advance this frame
+  let simDt = Math.max(0, realDt * timeScale);
+
+  if (simDt > 0) {
+    // Physics stepping:
+    //  - Small steps at normal warp for stability
+    //  - Much larger steps allowed at huge warp so we don't cap out around 10k×
+
+    const BASE_MAX_STEP = 0.5;     // good for normal flight/orbits
+    const HIGH_WARP_MAX_STEP = 8.0; // big chunks at huge warp (orbits still fine)
+    const HIGH_WARP_THRESHOLD = 5000; // above this, loosen the step size
+
+    const MAX_STEPS_PER_FRAME = 400; // allow more steps if needed
+
+    // Pick the step size based on current warp
+    const maxStep = (timeScale >= HIGH_WARP_THRESHOLD)
+      ? HIGH_WARP_MAX_STEP
+      : BASE_MAX_STEP;
+
+    // How many steps would we need if every step were maxStep?
+    let steps = Math.ceil(simDt / maxStep);
+
+    if (steps > MAX_STEPS_PER_FRAME) {
+      // Clamp: we effectively cap simDt to what we can afford this frame,
+      // but now the cap is much higher at high warp.
+      steps = MAX_STEPS_PER_FRAME;
+      simDt = steps * maxStep;
     }
 
-    updatePredictedPath();
-    draw();
-    requestAnimationFrame(loop);
+    const stepDt = simDt / steps;
+
+    for (let i = 0; i < steps; i++) {
+      update(stepDt);
+    }
   }
+
+  // At huge warp, the predicted path is expensive and not very useful.
+  // So only update it:
+  //  - every frame at low warp
+  //  - every Nth frame at high warp
+  let shouldUpdatePrediction = true;
+  if (timeScale > 2000) {
+    // e.g. only recompute 1 out of every 10 frames at high warp
+    shouldUpdatePrediction = (frameCounter % 10 === 0);
+  }
+
+  if (shouldUpdatePrediction) {
+    updatePredictedPath();
+  }
+
+  draw();
   requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+
 })();
 </script>
 </body>
