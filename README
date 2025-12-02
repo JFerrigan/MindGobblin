@@ -1,21 +1,3 @@
-Okay, how to do stuff for john & powell <3.
+About time to add something of substance to the README don't you think?
 
-Step 1: checkout this repo. Use git clone & the https link. Straight forward enough.
-You might need to set up tokens or credentials. If so ask GPT.
-
-Step 2: set up yout environment
-ask GPT how to install dotnet & docker
-
-Step 3: Build images and run them. Use these commands:
-docker build -t jake-server .
-docker run --rm -p 8080:8080 jake-server
-
-Step 4: Make a branch, make changes, commit them, & push!
-git checkout -b <branchname>
-...make changes...
-git add .
-git commit
-git push --set-upstream origin <branchname>
-
-Thats all folks! 
-Now go add some features.
+Nah.
