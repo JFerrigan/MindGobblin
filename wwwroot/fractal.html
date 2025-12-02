@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Fractal Explorer — Autofocus Edge-Lock</title>
+<style>
+  :root{
+    --ui:#0f1522cc; --edge:#1f2a3c; --fg:#e7ecef; --muted:#9aa6b2; --accent:#57e6c1; --bg:#000;
+  }
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,Segoe UI,Roboto,Inter,Arial}
+  canvas{width:100%;height:100%;display:block}
+  #hud{
+    position:fixed;left:12px;top:12px;display:flex;gap:10px;flex-wrap:wrap;
+    background:var(--ui);border:1px solid var(--edge);padding:10px;border-radius:12px;backdrop-filter:blur(6px)
+  }
+  .row{display:flex;align-items:center;gap:8px}
+  .row label{color:var(--muted)}
+  .btn, select, input[type="range"], input[type="checkbox"]{
+    border:1px solid var(--edge);background:#0b1120;color:var(--fg);padding:6px 10px;border-radius:10px
+  }
+  .btn{cursor:pointer;transition:.15s;user-select:none}
+  .btn:hover{border-color:#2a3b57;transform:translateY(-1px)}
+  #fps{font-variant-numeric:tabular-nums;color:#9bd3ff}
+  #hint{position:fixed;right:12px;bottom:12px;color:#8ab7ff80}
+  #errors{
+    position:fixed;left:12px;bottom:12px;max-width:min(640px, calc(100% - 24px));
+    background:#201020cc;border:1px solid #50303a;color:#ffd2d2;padding:10px;border-radius:10px;display:none;white-space:pre-wrap
+  }
+  @media (max-width:700px){ #hud{max-width:calc(100% - 24px)} }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+
+<!-- UI -->
+<div id="hud" aria-label="Controls">
+  <div class="row">
+    <label for="set">Set</label>
+    <select id="set">
+      <option value="0">Mandelbrot</option>
+      <option value="1">Julia (animated)</option>
+      <option value="2">Burning Ship</option>
+    </select>
+  </div>
+  <div class="row">
+    <label for="speed">Speed</label>
+    <input id="speed" type="range" min="0" max="2" step="0.001" value="0.8"/>
+  </div>
+  <div class="row">
+    <label for="zoom">Zoom</label>
+    <input id="zoom" type="range" min="0" max="2" step="0.001" value="1.0"/>
+  </div>
+  <div class="row">
+    <label for="detail">Detail</label>
+    <input id="detail" type="range" min="0.2" max="1.6" step="0.01" value="1.0"/>
+  </div>
+  <div class="row">
+    <label><input id="autoz" type="checkbox" checked/> Auto Zoom</label>
+    <label><input id="edgelock" type="checkbox" checked/> Edge-Lock</label>
+  </div>
+  <div class="row">
+    <button id="pause" class="btn">⏸ Pause</button>
+    <button id="randomize" class="btn">🎲 Randomize</button>
+    <button id="palette" class="btn">🌈 Palette</button>
+    <span id="fps" aria-live="polite">FPS 0</span>
+  </div>
+</div>
+<div id="hint">Drag to pan • Wheel / pinch to zoom • R to randomize • Space to pause</div>
+<pre id="errors" role="alert"></pre>
+
+<script>
+/* ========================================================================== *
+ * CONFIG                                                                     *
+ * ========================================================================== */
+const CONFIG = {
+  maxDevicePixelRatio: 2,
+  baseZoomRate: 0.22,            // exponential zoom-in rate when Auto Zoom is on
+  paletteTimeRate: 0.03,
+  dragPanScale: 2.0,
+  targetDrift: 0.00025,
+  autoRotAmp: 0.05,
+  escapeR2: 256.0,
+  iterMin: 60.0,
+  iterMax: 1800.0,
+  // Autofocus parameters
+  focusIntervalMs: 800,           // how often to run the autofocus probe
+  probeGrid: 5,                   // NxN samples around center
+  probeSpan: 0.8,                 // span in view-space (scaled by current zoom)
+  desirableNuLo: 0.25,            // edge-ish
+  desirableNuHi: 0.85,
+  interiorNuCutoff: 0.05,         // too interior = flat color; move out
+  autofocusStrength: 0.35         // how hard we steer toward chosen probe
+};
+
+/* ========================================================================== *
+ * SHADERS (WebGL1)                                                           *
+ * ========================================================================== */
+const VERT_SRC = `
+  attribute vec2 aPos;
+  void main(){ gl_Position = vec4(aPos, 0.0, 1.0); }
+`;
+
+const FRAG_SRC = `
+  precision highp float;
+
+  uniform vec2  u_res;
+  uniform float u_time;
+  uniform float u_speed;
+  uniform float u_zoomCtl;
+  uniform float u_detail;
+  uniform int   u_set;
+  uniform vec2  u_center;
+  uniform float u_rot;
+  uniform vec3  u_palette;
+
+  mat2 rot(float a){ float c=cos(a), s=sin(a); return mat2(c,-s,s,c); }
+  vec3 hsv2rgb(vec3 c){
+    vec3 p = abs(fract(c.xxx + vec3(0., 2./3., 1./3.))*6. - 3.);
+    return c.z * mix(vec3(1.0), clamp(p-1.0,0.0,1.0), c.y);
+  }
+  vec3 palette(float nu, float t, vec3 shift){
+    float h = fract(nu*0.95 + t*${CONFIG.paletteTimeRate.toFixed(3)} + shift.x);
+    float s = clamp(0.65 + 0.35*sin(6.283*(nu + shift.y)), 0.4, 1.0);
+    float v = clamp(0.8 + 0.2*sin(6.283*(nu*2.0 + shift.z)), 0.55, 1.0);
+    return hsv2rgb(vec3(h, s, v));
+  }
+
+  void main(){
+    vec2 uv = (gl_FragCoord.xy / u_res) * 2.0 - 1.0;
+    uv.x *= u_res.x / u_res.y;
+
+    float t = u_time * u_speed;
+    float baseZoom = 1.0; // (controlled in JS for Auto Zoom)
+    float userZoom = pow(2.0, (u_zoomCtl - 1.0) * 4.0);
+    float zoom = baseZoom / userZoom;
+
+    vec2 z0 = (rot(u_rot) * (uv * zoom)) + u_center;
+
+    float maxIterF = ${CONFIG.iterMin.toFixed(1)} * u_detail + 40.0 * (1.0/max(zoom, 1e-6));
+    maxIterF = clamp(maxIterF, ${CONFIG.iterMin.toFixed(1)}, ${CONFIG.iterMax.toFixed(1)});
+    int maxIter = int(maxIterF);
+
+    float iters = 0.0;
+    float escape = 0.0;
+    float R2 = ${CONFIG.escapeR2.toFixed(1)};
+
+    if(u_set == 0){
+      vec2 z = vec2(0.0);
+      vec2 c = z0;
+      float r2 = 0.0;
+      for(int i=0;i<5000;i++){
+        if(i>=maxIter) break;
+        vec2 z2 = vec2(z.x*z.x - z.y*z.y, 2.0*z.x*z.y) + c;
+        z = z2;
+        r2 = dot(z,z);
+        if(r2>R2){ iters = float(i); escape = r2; break; }
+      }
+    } else if(u_set == 1){
+      vec2 c = vec2(0.285 + 0.25*cos(t*0.37), 0.01 + 0.25*sin(t*0.53));
+      vec2 z = z0;
+      float r2 = 0.0;
+      for(int i=0;i<5000;i++){
+        if(i>=maxIter) break;
+        vec2 z2 = vec2(z.x*z.x - z.y*z.y, 2.0*z.x*z.y) + c;
+        z = z2;
+        r2 = dot(z,z);
+        if(r2>R2){ iters = float(i); escape = r2; break; }
+      }
+    } else {
+      vec2 c = z0;
+      vec2 z = vec2(0.0);
+      float r2 = 0.0;
+      for(int i=0;i<5000;i++){
+        if(i>=maxIter) break;
+        z = vec2(abs(z.x), abs(z.y));
+        vec2 z2 = vec2(z.x*z.x - z.y*z.y, 2.0*z.x*z.y) + c;
+        z = z2;
+        r2 = dot(z,z);
+        if(r2>R2){ iters = float(i); escape = r2; break; }
+      }
+    }
+
+    float nu;
+    if(escape==0.0){
+      nu = 0.0;
+    } else {
+      float log_zn = 0.5 * log(escape);
+      float nuRaw = (iters + 1.0 - log(log_zn / log(2.0)) / log(2.0)) / float(maxIter);
+      nu = clamp(nuRaw, 0.0, 1.0);
+    }
+
+    vec3 col = palette(nu, t, u_palette);
+    float v = 1.0 - dot(uv*0.7, uv*0.7);
+    col *= clamp(v, 0.15, 1.0);
+    col += 0.06 * pow(1.0 - nu, 3.0);
+
+    gl_FragColor = vec4(col, 1.0);
+  }
+`;
+
+/* ========================================================================== *
+ * UTIL                                                                       *
+ * ========================================================================== */
+const $ = (sel) => document.querySelector(sel);
+function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
+function showError(msg){ const b=$('#errors'); b.textContent=msg; b.style.display='block'; }
+function hideError(){ $('#errors').style.display='none'; }
+
+/* ========================================================================== *
+ * RENDER                                                                     *
+ * ========================================================================== */
+const Render = (() => {
+  let gl, program, buf;
+  const u = {};
+  const state = { paletteShift: [Math.random(), Math.random(), Math.random()] };
+
+  function init(canvas){
+    gl = canvas.getContext('webgl', { antialias:false, preserveDrawingBuffer:false });
+    if(!gl) throw new Error('WebGL not supported');
+
+    const vs = compile(gl.VERTEX_SHADER, VERT_SRC);
+    const fs = compile(gl.FRAGMENT_SHADER, FRAG_SRC);
+    program = link(vs, fs);
+    gl.useProgram(program);
+
+    buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
+    const loc = gl.getAttribLocation(program, 'aPos');
+    gl.enableVertexAttribArray(loc);
+    gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+
+    u.res    = gl.getUniformLocation(program, 'u_res');
+    u.time   = gl.getUniformLocation(program, 'u_time');
+    u.speed  = gl.getUniformLocation(program, 'u_speed');
+    u.zoom   = gl.getUniformLocation(program, 'u_zoomCtl');
+    u.detail = gl.getUniformLocation(program, 'u_detail');
+    u.set    = gl.getUniformLocation(program, 'u_set');
+    u.center = gl.getUniformLocation(program, 'u_center');
+    u.rot    = gl.getUniformLocation(program, 'u_rot');
+    u.pal    = gl.getUniformLocation(program, 'u_palette');
+  }
+
+  function compile(type, src){
+    const sh = gl.createShader(type);
+    gl.shaderSource(sh, src);
+    gl.compileShader(sh);
+    // ✅ WebGL1: only COMPILE_STATUS is valid
+    if(!gl.getShaderParameter(sh, gl.COMPILE_STATUS)){
+      const log = gl.getShaderInfoLog(sh) || 'Unknown shader compile error';
+      throw new Error(log);
+    }
+    return sh;
+  }
+  function link(vs, fs){
+    const p = gl.createProgram();
+    gl.attachShader(p, vs); gl.attachShader(p, fs); gl.linkProgram(p);
+    if(!gl.getProgramParameter(p, gl.LINK_STATUS)){
+      const log = gl.getProgramInfoLog(p) || 'Unknown program link error';
+      throw new Error(log);
+    }
+    return p;
+  }
+
+  function setViewport(w, h){ gl.viewport(0, 0, w, h); gl.uniform2f(u.res, w, h); }
+  function draw(uniforms){
+    gl.uniform1f(u.time,   uniforms.time);
+    gl.uniform1f(u.speed,  uniforms.speed);
+    gl.uniform1f(u.zoom,   uniforms.zoomCtl);
+    gl.uniform1f(u.detail, uniforms.detail);
+    gl.uniform1i(u.set,    uniforms.set);
+    gl.uniform2f(u.center, uniforms.centerX, uniforms.centerY);
+    gl.uniform1f(u.rot,    uniforms.rot);
+    gl.uniform3f(u.pal,    state.paletteShift[0], state.paletteShift[1], state.paletteShift[2]);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+  }
+  function randomizePalette(){ state.paletteShift = [Math.random(), Math.random(), Math.random()]; }
+  function getGL(){ return gl; }
+
+  return { init, setViewport, draw, randomizePalette, getGL };
+})();
+
+/* ========================================================================== *
+ * SIMPLE CPU PROBES (for Auto-Focus / Edge-Lock)                              *
+ * These are tiny, low-iter CPU versions to estimate "nu" at a few points.    *
+ * ========================================================================== */
+function nuMandelbrot(cx, cy, maxIter=200, R2=CONFIG.escapeR2){
+  let zx=0, zy=0, i=0;
+  for(; i<maxIter; i++){
+    // z = z^2 + c
+    const zx2 = zx*zx - zy*zy + cx;
+    const zy2 = 2*zx*zy + cy;
+    zx = zx2; zy = zy2;
+    const r2 = zx*zx + zy*zy;
+    if(r2>R2){
+      const log_zn = 0.5*Math.log(r2);
+      const nuRaw = (i + 1 - Math.log(log_zn / Math.log(2)) / Math.log(2)) / maxIter;
+      return clamp(nuRaw,0,1);
+    }
+  }
+  return 0.0; // interior approx
+}
+
+function nuBurningShip(cx, cy, maxIter=200, R2=CONFIG.escapeR2){
+  let zx=0, zy=0, i=0;
+  for(; i<maxIter; i++){
+    zx = Math.abs(zx);
+    zy = Math.abs(zy);
+    const zx2 = zx*zx - zy*zy + cx;
+    const zy2 = 2*zx*zy + cy;
+    zx = zx2; zy = zy2;
+    const r2 = zx*zx + zy*zy;
+    if(r2>R2){
+      const log_zn = 0.5*Math.log(r2);
+      const nuRaw = (i + 1 - Math.log(log_zn / Math.log(2)) / Math.log(2)) / maxIter;
+      return clamp(nuRaw,0,1);
+    }
+  }
+  return 0.0;
+}
+
+function nuJulia(x, y, t, maxIter=200, R2=CONFIG.escapeR2){
+  const cx = 0.285 + 0.25*Math.cos(t*0.37);
+  const cy = 0.01 + 0.25*Math.sin(t*0.53);
+  let zx=x, zy=y, i=0;
+  for(; i<maxIter; i++){
+    const zx2 = zx*zx - zy*zy + cx;
+    const zy2 = 2*zx*zy + cy;
+    zx = zx2; zy = zy2;
+    const r2 = zx*zx + zy*zy;
+    if(r2>R2){
+      const log_zn = 0.5*Math.log(r2);
+      const nuRaw = (i + 1 - Math.log(log_zn / Math.log(2)) / Math.log(2)) / maxIter;
+      return clamp(nuRaw,0,1);
+    }
+  }
+  return 0.0;
+}
+
+/* ========================================================================== *
+ * UI / INPUT                                                                 *
+ * ========================================================================== */
+const UI = (() => {
+  const el = {
+    set: $('#set'), speed: $('#speed'), zoom: $('#zoom'), detail: $('#detail'),
+    pause: $('#pause'), randomize: $('#randomize'), palette: $('#palette'), fps: $('#fps'),
+    autoz: $('#autoz'), edgelock: $('#edgelock'),
+    canvas: $('#gl')
+  };
+
+  const interaction = { dragging:false, lastX:0, lastY:0 };
+
+  function bindHandlers(onChange){
+    el.set.addEventListener('change', ()=> onChange());
+    ['input','change'].forEach(ev=>{
+      el.speed.addEventListener(ev, onChange);
+      el.zoom.addEventListener(ev, onChange);
+      el.detail.addEventListener(ev, onChange);
+      el.autoz.addEventListener(ev, onChange);
+      el.edgelock.addEventListener(ev, onChange);
+    });
+
+    el.pause.onclick = ()=> onChange({togglePause:true});
+    el.randomize.onclick = ()=> onChange({randomize:true});
+    el.palette.onclick = ()=> onChange({shufflePalette:true});
+
+    // Drag to pan
+    el.canvas.addEventListener('mousedown', (e)=>{ interaction.dragging=true; interaction.lastX=e.clientX; interaction.lastY=e.clientY; });
+    window.addEventListener('mouseup', ()=> interaction.dragging=false);
+    window.addEventListener('mousemove', (e)=>{
+      if(!interaction.dragging) return;
+      const dx = e.clientX - interaction.lastX;
+      const dy = e.clientY - interaction.lastY;
+      interaction.lastX = e.clientX; interaction.lastY = e.clientY;
+      onChange({pan:[dx,dy]});
+    }, {passive:true});
+
+    // Wheel zoom
+    el.canvas.addEventListener('wheel', (e)=>{
+      e.preventDefault();
+      const v = parseFloat(el.zoom.value);
+      el.zoom.value = String(clamp(v + (e.deltaY>0 ? 0.05 : -0.05), 0, 2));
+      onChange();
+    }, {passive:false});
+
+    // Keyboard
+    window.addEventListener('keydown',(e)=>{
+      if(e.code === 'Space'){ onChange({togglePause:true}); }
+      if(e.key.toLowerCase()==='r'){ onChange({randomize:true}); }
+    });
+  }
+
+  function read(){
+    return {
+      set: parseInt(el.set.value,10),
+      speed: parseFloat(el.speed.value),
+      zoomCtl: parseFloat(el.zoom.value),
+      detail: parseFloat(el.detail.value),
+      autoZoom: el.autoz.checked,
+      edgeLock: el.edgelock.checked
+    };
+  }
+
+  function setFPS(val){ el.fps.textContent = 'FPS ' + val; }
+  function blinkPalette(){ el.palette.style.transform='scale(1.04)'; setTimeout(()=> el.palette.style.transform='', 120); }
+
+  return { el, bindHandlers, read, setFPS, blinkPalette };
+})();
+
+/* ========================================================================== *
+ * MAIN                                                                       *
+ * ========================================================================== */
+(function main(){
+  const canvas = UI.el.canvas;
+  let gl;
+  try{
+    Render.init(canvas);
+    gl = Render.getGL();
+    hideError();
+  }catch(err){
+    showError('WebGL init failed:\n' + err.message);
+    return;
+  }
+
+  // CAMERA
+  const cam = {
+    centerX: -0.7436438870371587,
+    centerY:  0.13182590420531198,
+    targetX: -0.7436438870371587 + 0.02,
+    targetY:  0.13182590420531198 - 0.02,
+    rot: 0.0,
+    baseZoom: 1.0 // controlled by Auto Zoom
+  };
+
+  // APP
+  const app = {
+    paused: false,
+    startTime: performance.now(),
+    lastFPSCheck: performance.now(),
+    frames: 0, fps: 0,
+    lastFocus: 0
+  };
+
+  // Resize
+  function resize(){
+    const dpr = Math.min(window.devicePixelRatio||1, CONFIG.maxDevicePixelRatio);
+    const w = Math.floor(canvas.clientWidth * dpr);
+    const h = Math.floor(canvas.clientHeight * dpr);
+    if(canvas.width !== w || canvas.height !== h){
+      canvas.width = w; canvas.height = h;
+      Render.setViewport(w, h);
+    }
+  }
+  new ResizeObserver(resize).observe(canvas);
+  resize();
+
+  // UI
+  UI.bindHandlers((action={})=>{
+    if(action.togglePause){
+      app.paused = !app.paused;
+      UI.el.pause.textContent = app.paused ? '▶ Resume' : '⏸ Pause';
+    }
+    if(action.shufflePalette){ Render.randomizePalette(); UI.blinkPalette(); }
+    if(action.randomize){ randomizePath(); }
+    if(action.pan){
+      const [dx, dy] = action.pan;
+      const ui = UI.read();
+      const aspect = canvas.width / canvas.height;
+      const userZoom = Math.pow(2, (ui.zoomCtl - 1.0) * 4.0);
+      const scale = userZoom * CONFIG.dragPanScale * cam.baseZoom;
+      cam.centerX -= (dx / (canvas.width))  * scale * 2.0 * aspect;
+      cam.centerY += (dy / (canvas.height)) * scale * 2.0;
+      cam.targetX = cam.centerX;
+      cam.targetY = cam.centerY;
+    }
+  });
+
+  function randomizePath(){
+    const presets = [
+      {x:-0.7436438870371587,y:0.13182590420531198}, // Seahorse
+      {x:-0.1011,y:0.9563},
+      {x:-1.25066,y:0.02012},
+      {x:-1.7753,y:0.0},
+      {x:-0.8,y:0.156}
+    ];
+    const p = presets[Math.floor(Math.random()*presets.length)];
+    cam.centerX = p.x + (Math.random()-0.5)*0.02;
+    cam.centerY = p.y + (Math.random()-0.5)*0.02;
+    cam.targetX = cam.centerX + (Math.random()-0.5)*0.05;
+    cam.targetY = cam.centerY + (Math.random()-0.5)*0.05;
+    cam.rot = (Math.random()-0.5)*0.7;
+    Render.randomizePalette();
+  }
+
+  // FPS
+  function updateFPS(){
+    app.frames++;
+    const now = performance.now();
+    if(now - app.lastFPSCheck >= 500){
+      app.fps = Math.round(app.frames * 1000 / (now - app.lastFPSCheck));
+      UI.setFPS(app.fps);
+      app.frames = 0;
+      app.lastFPSCheck = now;
+    }
+  }
+
+  // Convert screen-space offsets to fractal-space offset given current zoom and aspect
+  function viewToWorld(dx, dy, ui){
+    const aspect = canvas.width / canvas.height;
+    const userZoom = Math.pow(2, (ui.zoomCtl - 1.0) * 4.0);
+    const zoom = cam.baseZoom / userZoom;
+    // uv in [-1,1] space:
+    const sx = dx * zoom * aspect;
+    const sy = dy * zoom;
+    return [sx, sy];
+  }
+
+  // Autofocus probe around center; steer toward high-contrast edge
+  function autoFocus(ui, t){
+    const now = performance.now();
+    if(now - app.lastFocus < CONFIG.focusIntervalMs) return;
+    app.lastFocus = now;
+
+    const N = CONFIG.probeGrid;
+    const span = CONFIG.probeSpan;
+    const results = [];
+    let best = null;
+    for(let iy=0; iy<N; iy++){
+      for(let ix=0; ix<N; ix++){
+        // grid in [-span, span]
+        const gx = -span + 2*span*(ix/(N-1));
+        const gy = -span + 2*span*(iy/(N-1));
+        const [wx, wy] = viewToWorld(gx, gy, ui);
+        const px = cam.centerX + wx;
+        const py = cam.centerY + wy;
+
+        let nu = 0;
+        if(ui.set===0) nu = nuMandelbrot(px, py, 140);
+        else if(ui.set===2) nu = nuBurningShip(px, py, 140);
+        else nu = nuJulia(px, py, t, 140);
+
+        // "interestingness": prefer mid nu (edge), reward gradient wrt neighbors (approx by |nu-0.5|)
+        const score = 1.0 - Math.abs(nu - 0.55); // peak near 0.55
+        results.push({gx,gy,nu,score});
+        if(!best || score > best.score) best = {gx,gy,nu,score};
+      }
+    }
+
+    const centerNu = (ui.set===0) ? nuMandelbrot(cam.centerX, cam.centerY, 140)
+                    : (ui.set===2) ? nuBurningShip(cam.centerX, cam.centerY, 140)
+                    : nuJulia(cam.centerX, cam.centerY, t, 140);
+
+    // If center is deep interior, push outward a bit
+    if(centerNu < CONFIG.interiorNuCutoff){
+      cam.targetX = cam.centerX + (best.gx * CONFIG.autofocusStrength * 0.8);
+      cam.targetY = cam.centerY + (best.gy * CONFIG.autofocusStrength * 0.8);
+    } else if (ui.edgeLock) {
+      // Steer gently toward the best edge point
+      cam.targetX = cam.centerX + (best.gx * CONFIG.autofocusStrength);
+      cam.targetY = cam.centerY + (best.gy * CONFIG.autofocusStrength);
+    }
+  }
+
+  // LOOP
+  function frame(){
+    try {
+      resize();
+      if(!app.paused){
+        const ui = UI.read();
+        const now = performance.now();
+        const t = (now - app.startTime) / 1000;
+
+        // Auto Zoom: exponential zoom-in (with floor/ceiling) but stall if too interior
+        if(ui.autoZoom){
+          // If center is too interior, temporarily slow zoom so autofocus can steer out
+          const centerNu = (ui.set===0) ? nuMandelbrot(cam.centerX, cam.centerY, 80)
+                          : (ui.set===2) ? nuBurningShip(cam.centerX, cam.centerY, 80)
+                          : nuJulia(cam.centerX, cam.centerY, t, 80);
+          const rate = centerNu < CONFIG.interiorNuCutoff ? CONFIG.baseZoomRate*0.25 : CONFIG.baseZoomRate;
+          cam.baseZoom = Math.max(1e-6, Math.exp(-rate * t));
+        } else {
+          cam.baseZoom = 1.0; // user controls via slider only
+        }
+
+        // Auto-Focus/Edge-Lock
+        if(ui.edgeLock || ui.autoZoom){
+          autoFocus(ui, t);
+        }
+
+        // Ease center toward target + drift target a bit
+        const lerp = 0.12;
+        cam.centerX += (cam.targetX - cam.centerX)*lerp;
+        cam.centerY += (cam.targetY - cam.centerY)*lerp;
+        const tt = t*0.15;
+        cam.targetX += CONFIG.targetDrift*Math.cos(tt*1.7);
+        cam.targetY += CONFIG.targetDrift*Math.sin(tt*2.3);
+
+        const autoRot = Math.sin(t*0.07)*CONFIG.autoRotAmp;
+
+        Render.draw({
+          time: t,
+          speed: ui.speed,
+          // pass both: shader uses user zoom; baseZoom is implicit in how we probe & steer
+          zoomCtl: ui.zoomCtl,
+          detail: ui.detail,
+          set: ui.set,
+          centerX: cam.centerX,
+          centerY: cam.centerY,
+          rot: cam.rot + autoRot
+        });
+
+        updateFPS();
+      }
+      requestAnimationFrame(frame);
+    } catch (err){
+      showError('Render error:\n' + (err && err.message ? err.message : String(err)));
+      console.error(err);
+    }
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
