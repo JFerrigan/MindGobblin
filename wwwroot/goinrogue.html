@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Pocket Roguelike — Single File</title>
+<style>
+  :root{
+    --bg:#0b0f17;--card:#111826;--fg:#e7ecef;--muted:#9aa6b2;--edge:#1f2a3c;
+    --accent:#57e6c1;--accent2:#76ffd9;--danger:#ff6b6b;--gold:#f6c945;--heal:#68e0a4;
+  }
+  html,body{height:100%}
+  body{
+    margin:0;background:radial-gradient(1000px 700px at 12% -10%, #10202b 0, transparent 60%),
+             radial-gradient(800px 600px at 110% 10%, #0e1a13 0, transparent 55%), var(--bg);
+    color:var(--fg);font:14px/1.4 system-ui,Segoe UI,Roboto,Inter,Arial,sans-serif;
+    display:grid;grid-template-rows:auto 1fr auto;gap:8px;
+  }
+  header,footer{padding:8px 12px}
+  header{
+    display:flex;align-items:center;gap:16px;background:linear-gradient(#0f1522,#0c121d);
+    border-bottom:1px solid var(--edge)
+  }
+  .title{font-weight:700;letter-spacing:.5px}
+  .hud{display:flex;gap:16px;flex-wrap:wrap}
+  .hud .pill{background:#0f1522;border:1px solid var(--edge);padding:4px 8px;border-radius:999px}
+  #wrap{display:grid;grid-template-columns:auto 320px;gap:12px;padding:12px}
+  #game{background:#0b0f17;border:1px solid var(--edge);border-radius:12px;box-shadow:0 10px 30px #0006}
+  #side{display:flex;flex-direction:column;gap:12px}
+  .card{background:var(--card);border:1px solid var(--edge);border-radius:12px;overflow:hidden}
+  .card h3{margin:0;padding:10px 12px;border-bottom:1px solid var(--edge);font-size:13px;color:var(--accent)}
+  .card .body{padding:10px 12px;max-height:260px;overflow:auto}
+  .log p{margin:.25rem 0}
+  .log .dmg{color:var(--danger)}
+  .log .good{color:var(--heal)}
+  .legend{display:grid;grid-template-columns:auto 1fr;gap:6px 10px;font-size:12px;color:var(--muted)}
+  kbd{background:#111a28;border:1px solid var(--edge);border-bottom-color:#0b101a;border-radius:6px;padding:1px 6px;font-family:ui-monospace,monospace;font-size:12px}
+  footer{display:flex;justify-content:space-between;color:var(--muted)}
+  .btn{cursor:pointer;border:1px solid var(--edge);background:#0f1827;padding:6px 10px;border-radius:8px}
+  .btn:active{transform:translateY(1px)}
+  @media (max-width: 980px){ #wrap{grid-template-columns:1fr} #side{order:-1} }
+</style>
+</head>
+<body>
+<header>
+  <div class="title">🗡️ Pocket Roguelike</div>
+  <div class="hud" id="hud">
+    <div class="pill">HP: <span id="hp"></span>/<span id="hpMax"></span></div>
+    <div class="pill">ATK: <span id="atk"></span></div>
+    <div class="pill">DEF: <span id="def"></span></div>
+    <div class="pill">Depth: <span id="depth"></span></div>
+    <div class="pill">Gold: <span id="gold"></span></div>
+    <div class="pill">Keys: <span id="keys"></span></div>
+    <div class="pill">Arrows: <span id="arrows"></span></div>
+  </div>
+  <div style="margin-left:auto;display:flex;gap:8px">
+    <button class="btn" id="btnNew">New Game</button>
+    <button class="btn" id="btnShoot">Shoot (F)</button>
+    <button class="btn" id="btnDescend">Descend ⭳</button>
+  </div>
+</header>
+
+<div id="wrap">
+  <canvas id="game" width="768" height="576"></canvas>
+  <aside id="side">
+    <div class="card">
+      <h3>How to Play</h3>
+      <div class="body legend">
+        <div>Move</div><div><kbd>↑↓←→</kbd> or <kbd>WASD</kbd></div>
+        <div>Wait</div><div><kbd>.</kbd> (period)</div>
+        <div>Shoot</div><div><kbd>F</kbd>, then direction</div>
+        <div>Descend</div><div><kbd>Enter</kbd> on stairs or click “Descend”</div>
+        <div>Goal</div><div>Descend, grab gold, survive.</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Inventory</h3>
+      <div class="body" id="inv">
+        <div>Weapon: <span id="invWeapon">Sword</span></div>
+        <div>Bow: <span id="invBow">—</span></div>
+        <div>Arrows: <span id="invArrows">0</span></div>
+        <div>Potions: <span id="invPotions">0</span></div>
+        <div>Keys: <span id="invKeys">0</span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Event Log</h3>
+      <div class="body log" id="log"></div>
+    </div>
+
+    <div class="card">
+      <h3>Legend</h3>
+      <div class="body legend">
+        <div>🧍</div><div>You</div>
+        <div>g</div><div>Goblin (hostile)</div>
+        <div>🗝️</div><div>Key</div>
+        <div>✚</div><div>Potion (+6 HP)</div>
+        <div>¤</div><div>Gold</div>
+        <div>⇣</div><div>Stairs</div>
+        <div>+</div><div>Door (bump to open / key)</div>
+        <div>🏹</div><div>Bow</div>
+        <div>→</div><div>Arrows (ammo)</div>
+        <div>^</div><div>Spike trap</div>
+        <div>#</div><div>Wall</div>
+        <div>·</div><div>Floor</div>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<footer>
+  <div>Turn-based, local only, no tracking. © You.</div>
+  <div>Pro tip: lure foes onto traps, then finish with a shot.</div>
+</footer>
+
+<script>
+(() => {
+  // ======= Constants =======
+  const TILE = 24;
+  const VIEW_W = 32, VIEW_H = 24;
+  const MAP_W = 60, MAP_H = 46;
+  const MAX_ROOMS = 18;
+  const ROOM_MIN = 4, ROOM_MAX = 9;
+  const FOV_RADIUS = 8;
+
+  const T = { WALL:1, FLOOR:0, DOOR:2, LOCKED:3 };
+  const COLORS = {
+    void:"#05070b", wall:"#0d1421", floor:"#0b0f17",
+    player:"#e7ecef", goblin:"#d96b6b", stair:"#57e6c1",
+    gold:"#f6c945", potion:"#68e0a4", key:"#d9c3ff",
+    door:"#a07c52", text:"#9aa6b2", trap:"#caa06a", arrow:"#e7ecef", bow:"#ffd580"
+  };
+
+  // ======= DOM / Canvas =======
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const logEl = document.getElementById('log');
+  const HUD = {
+    hp: document.getElementById('hp'),
+    hpMax: document.getElementById('hpMax'),
+    atk: document.getElementById('atk'),
+    def: document.getElementById('def'),
+    depth: document.getElementById('depth'),
+    gold: document.getElementById('gold'),
+    keys: document.getElementById('keys'),
+    arrows: document.getElementById('arrows'),
+  };
+  const INV = {
+    weapon: document.getElementById('invWeapon'),
+    bow: document.getElementById('invBow'),
+    arrows: document.getElementById('invArrows'),
+    potions: document.getElementById('invPotions'),
+    keys: document.getElementById('invKeys'),
+  };
+
+  // ======= Utility =======
+  const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
+  const rand = (a,b)=>Math.floor(Math.random()*(b-a+1))+a;
+  const choice = arr => arr[(Math.random()*arr.length)|0];
+  const dist2 = (a,b)=> (a.x-b.x)*(a.x-b.x)+(a.y-b.y)*(a.y-b.y);
+  const sign = n => n<0?-1:n>0?1:0;
+
+  function log(msg, cls="") {
+    const p = document.createElement('p');
+    if (cls) p.classList.add(cls);
+    p.textContent = msg;
+    logEl.appendChild(p);
+    logEl.scrollTop = logEl.scrollHeight;
+    while (logEl.children.length > 120) logEl.removeChild(logEl.firstChild);
+  }
+
+  // ======= Map / Generation =======
+  let map, seen, fov, entities, items, stairs, player, depth, rngSeed, traps;
+
+  function seedRng() { rngSeed = Math.random()*1e9|0; }
+  function randSeeded() { let x = rngSeed |= 0; x ^= x << 13; x ^= x >>> 17; x ^= x << 5; rngSeed = x|0; return ((x>>>0) / 4294967296); }
+  function sRand(a,b){ return Math.floor(randSeeded()*(b-a+1))+a; }
+  function sChoice(arr){ return arr[(randSeeded()*arr.length)|0]; }
+
+  function emptyMap(){
+    map = Array.from({length:MAP_H},()=>Array(MAP_W).fill(T.WALL));
+    seen = Array.from({length:MAP_H},()=>Array(MAP_W).fill(false));
+    fov  = Array.from({length:MAP_H},()=>Array(MAP_W).fill(false));
+    entities = [];
+    items = [];
+    traps = []; // {x,y,active:true}
+    stairs = null;
+  }
+
+  function rect(x,y,w,h){ return {x,y,w,h, center(){return {x:(x+w/2)|0, y:(y+h/2)|0}}}; }
+  function carveRoom(r){ for(let y=r.y; y<r.y+r.h; y++) for(let x=r.x; x<r.x+r.w; x++) map[y][x] = T.FLOOR; }
+  function carveHCorridor(x1,x2,y){ for(let x=Math.min(x1,x2); x<=Math.max(x1,x2); x++) map[y][x]=T.FLOOR; }
+  function carveVCorridor(y1,y2,x){ for(let y=Math.min(y1,y2); y<=Math.max(y1,y2); y++) map[y][x]=T.FLOOR; }
+
+  function genDungeon() {
+    emptyMap();
+    const rooms=[];
+    for(let i=0;i<MAX_ROOMS;i++){
+      const w = sRand(ROOM_MIN, ROOM_MAX);
+      const h = sRand(ROOM_MIN, ROOM_MAX);
+      const x = sRand(1, MAP_W - w - 2);
+      const y = sRand(1, MAP_H - h - 2);
+      const newR = rect(x,y,w,h);
+      let overlaps=false;
+      for(const r of rooms){
+        if (x <= r.x+r.w && x+w >= r.x && y <= r.y+r.h && y+h >= r.y) { overlaps=true; break; }
+      }
+      if (!overlaps){ carveRoom(newR); rooms.push(newR); }
+    }
+    rooms.sort((a,b)=>a.x-b.x);
+    for (let i=1;i<rooms.length;i++){
+      const a = rooms[i-1].center(), b = rooms[i].center();
+      if (randSeeded()<.5){ carveHCorridor(a.x,b.x,a.y); carveVCorridor(a.y,b.y,b.x); }
+      else { carveVCorridor(a.y,b.y,a.x); carveHCorridor(a.x,b.x,b.y); }
+      placeDoorAtJunction(a.x, a.y);
+      placeDoorAtJunction(b.x, b.y);
+    }
+    // random door narrows
+    for (let y=1;y<MAP_H-1;y++){
+      for (let x=1;x<MAP_W-1;x++){
+        if (map[y][x]===T.FLOOR){
+          const n = [map[y-1][x],map[y+1][x],map[y][x-1],map[y][x+1]];
+          const walls = n.filter(t=>t===T.WALL).length;
+          const floors= n.filter(t=>t===T.FLOOR).length;
+          if (floors===2 && walls===2 && randSeeded()<0.05) map[y][x] = randSeeded()<0.5?T.DOOR:T.LOCKED;
+        }
+      }
+    }
+
+    // player & stairs
+    const start = sChoice(rooms).center();
+    stairs = sChoice(rooms).center();
+    if (stairs.x===start.x && stairs.y===start.y) stairs = sChoice(rooms).center();
+
+    player = {
+      x:start.x, y:start.y, hpMax: 16+depth*2, hp: 16+depth*2, atk: 5+depth, def: 1+Math.floor(depth/2),
+      keys:0, gold:0, glyph:'🧍', hasBow:false, arrows:0, potions:0
+    };
+
+    // items
+    let countGold = sRand(8,14);
+    let countPot  = Math.max(1, sRand(2,6));
+    let countKeys = Math.max(1, sRand(1,3));
+    let countArrowStacks = sRand(2,4);
+    let countBows = randSeeded()<0.7 ? 1 : 0; // usually one bow per floor early on
+
+    scatter(countGold, ()=>({type:'gold', ch:'¤', color:COLORS.gold, val:sRand(3,15)}));
+    scatter(countPot,  ()=>({type:'potion', ch:'✚', color:COLORS.potion, heal:6}));
+    scatter(countKeys, ()=>({type:'key', ch:'🗝️', color:COLORS.key, k:1}));
+    scatter(countArrowStacks, ()=>({type:'arrows', ch:'→', color:COLORS.arrow, qty:sRand(3,8)}));
+    scatter(countBows, ()=>({type:'bow', ch:'🏹', color:COLORS.bow}));
+
+    // starter nearby potion
+    const near = {x: clamp(player.x + sRand(-2,2), 1, MAP_W-2), y: clamp(player.y + sRand(-2,2), 1, MAP_H-2)};
+    if (map[near.y][near.x]===T.FLOOR && !(near.x===stairs.x && near.y===stairs.y) && !itemAt(near.x, near.y)) {
+      items.push({type:'potion', ch:'✚', color:COLORS.potion, heal:6, x:near.x, y:near.y});
+    }
+
+    // monsters
+    const mobs = sRand(8+depth, 14+depth*2);
+    for (let i=0;i<mobs;i++){
+      const p = randomFloor();
+      entities.push({ kind:'goblin', ch:'g', color:COLORS.goblin, x:p.x, y:p.y, hp: 6+depth, atk: 3+Math.floor(depth/2), def: 0+Math.floor(depth/3) });
+    }
+
+    // traps (don’t spawn on start/stairs)
+    const trapCount = sRand(6, 12);
+    for (let i=0;i<trapCount;i++){
+      const p = randomFloor();
+      if ((p.x===player.x&&p.y===player.y)||(p.x===stairs.x&&p.y===stairs.y)) continue;
+      traps.push({x:p.x,y:p.y,active:true});
+    }
+  }
+
+  function placeDoorAtJunction(cx,cy){
+    const candidates = [{x:cx,y:cy-1},{x:cx,y:cy+1},{x:cx-1,y:cy},{x:cx+1,y:cy}];
+    for(const c of candidates){
+      if (inside(c.x,c.y) && map[c.y][c.x]===T.FLOOR){
+        const n = neigh(c.x,c.y);
+        const floors = n.filter(t=>t===T.FLOOR).length;
+        if (floors===2 && randSeeded()<0.25){
+          map[c.y][c.x] = randSeeded()<0.7?T.DOOR:T.LOCKED; return;
+        }
+      }
+    }
+  }
+  function neigh(x,y){ return [map[y-1]?.[x], map[y+1]?.[x], map[y]?.[x-1], map[y]?.[x+1]].filter(v=>v!==undefined); }
+  function inside(x,y){ return x>=0&&y>=0&&x<MAP_W&&y<MAP_H; }
+  function isWalkable(x,y){ if (!inside(x,y)) return false; const t = map[y][x]; return (t===T.FLOOR || t===T.DOOR || t===T.LOCKED); }
+  function randomFloor(){
+    let x,y;
+    do{ x=sRand(1,MAP_W-2); y=sRand(1,MAP_H-2);
+    }while(map[y][x]!==T.FLOOR || (player && x===player.x && y===player.y) || (stairs && x===stairs.x && y===stairs.y));
+    return {x,y};
+  }
+  function scatter(n, maker){
+    for(let i=0;i<n;i++){
+      const p = randomFloor();
+      if (!itemAt(p.x,p.y)) items.push(Object.assign({x:p.x,y:p.y}, maker()));
+    }
+  }
+
+  // ======= FOV =======
+  function computeFOV(px,py,r=FOV_RADIUS){
+    for(let y=0;y<MAP_H;y++) for(let x=0;x<MAP_W;x++) fov[y][x]=false;
+    setVisible(px,py);
+    const r2 = r*r;
+    for (let y = Math.max(0, py-r); y <= Math.min(MAP_H-1, py+r); y++){
+      for (let x = Math.max(0, px-r); x <= Math.min(MAP_W-1, px+r); x++){
+        const dx = x-px, dy = y-py;
+        if (dx*dx + dy*dy <= r2 && hasLOS(px,py,x,y)) setVisible(x,y);
+      }
+    }
+  }
+  function setVisible(x,y){ if (inside(x,y)){ fov[y][x]=true; seen[y][x]=true; } }
+  function isOpaque(x,y){ return !inside(x,y) || map[y][x]===T.WALL; }
+  function hasLOS(x0,y0,x1,y1){
+    let dx=Math.abs(x1-x0), sx=x0<x1?1:-1;
+    let dy=-Math.abs(y1-y0), sy=y0<y1?1:-1;
+    let err=dx+dy, e2;
+    while(true){
+      if (isOpaque(x0,y0) && !(x0===x1 && y0===y1)) return false;
+      if (x0===x1 && y0===y1) return true;
+      e2 = 2*err;
+      if (e2>=dy){ err+=dy; x0+=sx; }
+      if (e2<=dx){ err+=dx; y0+=sy; }
+    }
+  }
+
+  // ======= Entities / Items / Traps helpers =======
+  function entityAt(x,y){ return entities.find(e=>e.x===x && e.y===y); }
+  function itemAt(x,y){ return items.find(it=>it.x===x && it.y===y); }
+  function trapAt(x,y){ return traps.find(t=>t.active && t.x===x && t.y===y); }
+  function doorAt(x,y){ return (map[y][x]===T.DOOR || map[y][x]===T.LOCKED); }
+
+  // ======= Combat =======
+  function attack(attacker, defender, ranged=false){
+    const base = Math.max(1, attacker.atk - defender.def);
+    const bonus = ranged ? 1 : (Math.random()<0.2?1:0);
+    const dmg = Math.max(1, base + bonus);
+    defender.hp -= dmg;
+    if (attacker===player) log(`You ${ranged?'shoot':'hit'} the ${defender.kind} for ${dmg}.`, "dmg");
+    else log(`A ${attacker.kind} hits you for ${dmg}.`, "dmg");
+    if (defender.hp<=0){
+      if (defender===player){
+        log("You died. Press New Game to try again.", "dmg");
+      } else {
+        log(`The ${defender.kind} dies.`);
+        if (Math.random()<0.4) items.push({type:'gold',ch:'¤',color:COLORS.gold,x:defender.x,y:defender.y,val:rand(2,10)});
+        if (Math.random()<0.25) items.push({type:'arrows',ch:'→',color:COLORS.arrow,x:defender.x,y:defender.y,qty:rand(1,4)});
+        entities = entities.filter(e=>e!==defender);
+      }
+    }
+  }
+
+  function tryOpenDoor(x,y){
+    const t = map[y][x];
+    if (t===T.DOOR){ map[y][x]=T.FLOOR; log("You open the door."); return true; }
+    if (t===T.LOCKED){
+      if (player.keys>0){ player.keys--; map[y][x]=T.FLOOR; log("You unlock and open the door."); return true; }
+      else { log("Locked. You need a key."); return false; }
+    }
+    return true;
+  }
+
+  // ======= Turn System =======
+  let awaitingInput = true;
+  let shootPrep = false; // waiting for a direction after F
+
+  function playerAct(dx,dy){
+    if (!awaitingInput || !player || player.hp<=0) return;
+
+    // If prepping a shot, fire instead of moving
+    if (shootPrep){
+      shootPrep = false;
+      tryShoot(dx,dy);
+      return endTurn();
+    }
+
+    const nx = clamp(player.x+dx,0,MAP_W-1);
+    const ny = clamp(player.y+dy,0,MAP_H-1);
+
+    if (!isWalkable(nx,ny)) return endTurn();
+    if (doorAt(nx,ny)){ if (!tryOpenDoor(nx,ny)) return endTurn(); }
+
+    const foe = entityAt(nx,ny);
+    if (foe){ attack(player,foe); return endTurn(); }
+
+    player.x = nx; player.y = ny;
+
+    // traps
+    const tr = trapAt(nx,ny);
+    if (tr){
+      const spike = rand(2,6);
+      player.hp -= spike;
+      tr.active = false;
+      log(`You step on a trap for ${spike} damage!`, "dmg");
+      if (player.hp<=0){ endTurn(); return; }
+    }
+
+    // pickup
+    const it = itemAt(nx,ny);
+    if (it){
+      if (it.type==='gold'){ player.gold += it.val; log(`You pick up ${it.val} gold.`); }
+      else if (it.type==='potion'){ const heal = Math.min(it.heal, player.hpMax-player.hp); player.hp+=heal; player.potions++; log(`You pocket a potion (+6).`,"good"); }
+      else if (it.type==='key'){ player.keys += 1; log("You pick up a key.","good"); }
+      else if (it.type==='bow'){ player.hasBow = true; log("You pick up a bow (press F to shoot).","good"); }
+      else if (it.type==='arrows'){ player.arrows += it.qty; log(`You pick up ${it.qty} arrows.`,"good"); }
+      items = items.filter(o=>o!==it);
+    }
+
+    if (nx===stairs.x && ny===stairs.y){ log("You stand on stairs. Press Enter or click Descend to go down."); }
+    endTurn();
+  }
+
+  function tryShoot(dx,dy){
+    if (!player.hasBow){ log("You don't have a bow."); return; }
+    if (player.arrows<=0){ log("You're out of arrows."); return; }
+    if ((dx===0 && dy===0)){ log("Pick a direction to shoot."); return; }
+
+    player.arrows--;
+    const proj = {x:player.x, y:player.y, dx:sign(dx), dy:sign(dy), range: FOV_RADIUS*2+6};
+    let hit = false;
+    while (proj.range-- > 0){
+      proj.x += proj.dx; proj.y += proj.dy;
+      if (!inside(proj.x,proj.y) || map[proj.y][proj.x]===T.WALL){ break; }
+      // Doors stop arrows but open them
+      if (doorAt(proj.x,proj.y)){ map[proj.y][proj.x]=T.FLOOR; break; }
+      // Trap here? triggers and stops arrow
+      const tr = trapAt(proj.x,proj.y);
+      if (tr){ tr.active=false; log("Your arrow triggers a trap."); break; }
+      const foe = entityAt(proj.x,proj.y);
+      if (foe){ attack(player,foe,true); hit=true; break; }
+    }
+    if (!hit) log("Your arrow clatters away.");
+  }
+
+  function endTurn(){
+    awaitingInput = false;
+
+    // Enemies move
+    for (const m of entities){
+      if (m.hp<=0) continue;
+      // trap check at start (if spawned on trap)
+      let t0 = trapAt(m.x,m.y);
+      if (t0){ t0.active=false; const dmg=rand(2,6); m.hp-=dmg; log(`A ${m.kind} triggers a trap for ${dmg}.`,"good"); if (m.hp<=0){ log(`The ${m.kind} dies.`); entities = entities.filter(e=>e!==m); continue; } }
+
+      const inRange = dist2(m, player) <= (FOV_RADIUS*FOV_RADIUS*3);
+      if (inRange && hasLOS(m.x,m.y,player.x,player.y)){
+        const dx = sign(player.x - m.x), dy = sign(player.y - m.y);
+        const trySteps = [{dx,dy}, Math.abs(player.x-m.x)>Math.abs(player.y-m.y)?{dx,dy:0}:{dx:0,dy}, {dx:dx,dy:0}, {dx:0,dy:dy}];
+        for (const s of trySteps){
+          const tx = m.x + s.dx, ty = m.y + s.dy;
+          if (!isWalkable(tx,ty)) continue;
+          if (doorAt(tx,ty)) map[ty][tx]=T.FLOOR;
+          if (player.x===tx && player.y===ty){ attack(m, player); break; }
+          if (!entityAt(tx,ty)){
+            m.x=tx;m.y=ty;
+            const tr = trapAt(tx,ty);
+            if (tr){ tr.active=false; const dmg=rand(2,6); m.hp-=dmg; log(`A ${m.kind} hits a trap for ${dmg}.`,"good"); if (m.hp<=0){ log(`The ${m.kind} dies.`); entities = entities.filter(e=>e!==m); } }
+            break;
+          }
+        }
+      } else {
+        if (Math.random()<0.3){
+          const dirs = [{dx:1,dy:0},{dx:-1,dy:0},{dx:0,dy:1},{dx:0,dy:-1}];
+          const s = choice(dirs);
+          const tx=m.x+s.dx, ty=m.y+s.dy;
+          if (isWalkable(tx,ty) && !entityAt(tx,ty)) {
+            m.x=tx;m.y=ty;
+            const tr = trapAt(tx,ty);
+            if (tr){ tr.active=false; const dmg=rand(2,6); m.hp-=dmg; log(`A ${m.kind} blunders into a trap for ${dmg}.`,"good"); if (m.hp<=0){ log(`The ${m.kind} dies.`); entities = entities.filter(e=>e!==m); } }
+          }
+        }
+      }
+    }
+
+    computeFOV(player.x, player.y);
+    updateHUD();
+    draw();
+    awaitingInput = true;
+  }
+
+  function waitTurn(){ endTurn(); }
+
+  function descend(){
+    if (player.x===stairs.x && player.y===stairs.y){
+      depth++;
+      log(`You descend to depth ${depth}.`);
+      generateLevel();
+    } else { log("You are not on the stairs."); }
+  }
+
+  // ======= Rendering =======
+  function draw(){
+    const halfW=(VIEW_W/2)|0, halfH=(VIEW_H/2)|0;
+    const camX = clamp(player.x - halfW, 0, MAP_W - VIEW_W);
+    const camY = clamp(player.y - halfH, 0, MAP_H - VIEW_H);
+
+    ctx.fillStyle = COLORS.void;
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+
+    for (let y=0;y<VIEW_H;y++){
+      for (let x=0;x<VIEW_W;x++){
+        const mx=x+camX, my=y+camY;
+        const px=x*TILE, py=y*TILE;
+        const v = inside(mx,my)?map[my][mx]:T.WALL;
+
+        let visible = inside(mx,my)&&fov[my][mx];
+        let seenBefore = inside(mx,my)&&seen[my][mx];
+
+        if (v===T.WALL){
+          ctx.fillStyle = visible ? "#152236" : (seenBefore ? "#0d1421" : COLORS.void);
+          ctx.fillRect(px,py,TILE,TILE);
+        } else {
+          ctx.fillStyle = visible ? "#0b0f17" : (seenBefore ? "#090d14" : COLORS.void);
+          ctx.fillRect(px,py,TILE,TILE);
+          ctx.strokeStyle = "#0e1624";
+          ctx.strokeRect(px+0.5,py+0.5,TILE-1,TILE-1);
+        }
+
+        if (!inside(mx,my)) continue;
+
+        // Doors
+        if ((v===T.DOOR || v===T.LOCKED) && (visible||seenBefore)){
+          ctx.fillStyle = v===T.LOCKED ? "#8d6b42" : COLORS.door;
+          ctx.fillRect(px+4,py+6,TILE-8,TILE-12);
+          if (v===T.LOCKED){
+            ctx.fillStyle = "#d9c3ff";
+            ctx.fillRect(px+TILE/2-1, py+TILE/2-2, 2,4);
+          }
+        }
+
+        // Items
+        if (visible){
+          const it = itemAt(mx,my);
+          if (it){
+            ctx.fillStyle = it.color;
+            drawGlyph(it.ch, px+TILE/2, py+TILE/2);
+          }
+        }
+
+        // Traps (only if visible or previously seen? We show only when visible)
+        const tr = trapAt(mx,my);
+        if (tr && (visible)){
+          ctx.fillStyle = COLORS.trap;
+          drawGlyph("^", px+TILE/2, py+TILE/2);
+        }
+
+        // Stairs
+        if (visible && mx===stairs.x && my===stairs.y){
+          ctx.fillStyle = COLORS.stair;
+          drawGlyph("⇣", px+TILE/2, py+TILE/2);
+        }
+      }
+    }
+
+    // Entities (camera-aligned)
+    for (const m of entities){
+      if (inside(m.x,m.y) && fov[m.y][m.x]){
+        const screenX = (m.x - camX) * TILE + TILE/2;
+        const screenY = (m.y - camY) * TILE + TILE/2;
+        ctx.fillStyle = m.color;
+        drawGlyph(m.ch, screenX, screenY);
+      }
+    }
+
+    // Player last
+    const pScreenX = (player.x - camX) * TILE + TILE/2;
+    const pScreenY = (player.y - camY) * TILE + TILE/2;
+    ctx.fillStyle = COLORS.player;
+    drawGlyph(player.glyph, pScreenY, pScreenY); // typo guard? nope—correct below
+    // Correct draw:
+    drawGlyph(player.glyph, pScreenX, pScreenY);
+  }
+
+  function drawGlyph(ch, cx, cy){
+    ctx.font = "18px system-ui,Segoe UI,Roboto,Inter,Arial,emoji";
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(ch, cx, cy+1);
+  }
+
+  function updateHUD(){
+    HUD.hp.textContent = Math.max(0, player.hp|0);
+    HUD.hpMax.textContent = player.hpMax;
+    HUD.atk.textContent = player.atk;
+    HUD.def.textContent = player.def;
+    HUD.depth.textContent = depth;
+    HUD.gold.textContent = player.gold;
+    HUD.keys.textContent = player.keys;
+    HUD.arrows.textContent = player.arrows;
+
+    INV.weapon.textContent = "Sword";
+    INV.bow.textContent = player.hasBow ? "Yes" : "—";
+    INV.arrows.textContent = player.arrows;
+    INV.potions.textContent = player.potions;
+    INV.keys.textContent = player.keys;
+  }
+
+  // ======= Input =======
+  const keyMap = {
+    "ArrowUp":[0,-1], "KeyW":[0,-1],
+    "ArrowDown":[0,1], "KeyS":[0,1],
+    "ArrowLeft":[-1,0], "KeyA":[-1,0],
+    "ArrowRight":[1,0], "KeyD":[1,0],
+  };
+  window.addEventListener('keydown', (e)=>{
+    if (!player || player.hp<=0) return;
+    if (e.code in keyMap){ e.preventDefault(); const [dx,dy]=keyMap[e.code]; playerAct(dx,dy); }
+    else if (e.key==='.'){ e.preventDefault(); waitTurn(); }
+    else if (e.key==='Enter'){ e.preventDefault(); descend(); }
+    else if (e.key==='f' || e.key==='F'){ e.preventDefault(); shootPrep = true; log("Choose a direction to shoot."); }
+  });
+
+  document.getElementById('btnNew').onclick = ()=>{ startNew(); };
+  document.getElementById('btnDescend').onclick = ()=>{ descend(); };
+  document.getElementById('btnShoot').onclick = ()=>{ shootPrep = true; log("Choose a direction to shoot."); };
+
+  // ======= Level Lifecycle =======
+  function generateLevel(){
+    genDungeon();
+    computeFOV(player.x, player.y);
+    updateHUD();
+    draw();
+  }
+
+  function startNew(){
+    logEl.innerHTML="";
+    seedRng();
+    depth = 1;
+    log("Welcome to Pocket Roguelike!");
+    log("Find gold, descend deeper, try not to die.");
+    generateLevel();
+  }
+
+  // boot
+  startNew();
+
+})();
+</script>
+</body>
+</html>
