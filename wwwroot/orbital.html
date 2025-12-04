@@ -738,7 +738,7 @@
   // Easy: lighter fuel ⇒ same volume weighs less ⇒ higher TWR for the same tank size.
   // Hard: denser fuel ⇒ same volume is heavier ⇒ lower TWR for tighter burns.
   const FUEL_DENSITY_EASY = 0.001;
-  const FUEL_DENSITY_HARD = 0.1;
+  const FUEL_DENSITY_HARD = 0.01;
 
   // Easy mode: big tanks + light fuel
   // Roughly ~9 km/s total Δv (very forgiving).
@@ -764,15 +764,15 @@
   const STAGES_HARD = [
     {
       name: "Booster",
-      maxFuel: 80,
-      fuel: 80,
-      thrust: 32,
-      dryMass: 6
+      maxFuel: 100,
+      fuel: 100,
+      thrust: 35,
+      dryMass: 5
     },
     {
       name: "Orbiter",
-      maxFuel: 200,
-      fuel: 200,
+      maxFuel: 1000,
+      fuel: 1000,
       thrust: 10,
       dryMass: 3
     }
