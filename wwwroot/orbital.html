@@ -45,6 +45,10 @@
     align-items: flex-start;
   }
 
+  .hud-top-row--secondary {
+    margin-top: 4px;
+  }
+
   .hud-bottom-panel {
     display: flex;
     flex-direction: column;
@@ -269,7 +273,7 @@
   #difficulty-panel {
     position: fixed;
     left: 50%;
-    bottom: 200px;
+    bottom: 250px;
     transform: translateX(-50%);
     padding: 8px 14px;
     max-width: 360px;
@@ -347,7 +351,7 @@
 <div id="overlay"></div>
 <div id="difficulty-panel">
   <h3>FUEL MODE</h3>
-  <p>Choose your tank size before liftoff. No selection = Easy.</p>
+  <p>Choose your tank size before liftoff.</p>
   <div class="difficulty-buttons">
     <button id="diff-easy"
             class="difficulty-button difficulty-button--selected"
@@ -481,9 +485,13 @@
   const MAX_WARP = 50000;   // allow very high warp
 
   // --- Camera: zoom, pan, follow ----------------------------------------
-  let cameraZoom = 100000;
   const MIN_ZOOM = 0.25;
-  const MAX_ZOOM = 100000;
+  const MAX_ZOOM = 10000000;
+  let cameraZoom = MAX_ZOOM;
+
+  // Smaller = slower zoom
+  const ZOOM_STEP_MOUSE = 1.03; // was 1.1
+  const ZOOM_STEP_KEYS  = 1.06; // was 1.2
 
   let cameraX = 0;
   let cameraY = 0;
@@ -756,15 +764,15 @@
   const STAGES_HARD = [
     {
       name: "Booster",
-      maxFuel: 1200,
-      fuel: 1200,
+      maxFuel: 80,
+      fuel: 80,
       thrust: 32,
       dryMass: 6
     },
     {
       name: "Orbiter",
-      maxFuel: 250,
-      fuel: 250,
+      maxFuel: 60,
+      fuel: 60,
       thrust: 10,
       dryMass: 3
     }
@@ -822,7 +830,7 @@
     const ux = dxSun / rPlanet;
     const uy = dySun / rPlanet;
 
-    const surfaceAltitude = mb.radius + 5;
+    const surfaceAltitude = mb.radius;
     const rocketX = mb.x + ux * surfaceAltitude;
     const rocketY = mb.y + uy * surfaceAltitude;
 
@@ -968,11 +976,12 @@
   canvas.addEventListener("wheel", e => {
     e.preventDefault();
     if (e.deltaY < 0) {
-      cameraZoom = Math.min(MAX_ZOOM, cameraZoom * 1.1);
+      cameraZoom = Math.min(MAX_ZOOM, cameraZoom * ZOOM_STEP_MOUSE);
     } else if (e.deltaY > 0) {
-      cameraZoom = Math.max(MIN_ZOOM, cameraZoom / 1.1);
+      cameraZoom = Math.max(MIN_ZOOM, cameraZoom / ZOOM_STEP_MOUSE);
     }
   }, { passive: false });
+
 
 if (helpToggle) {
   helpToggle.addEventListener("click", (e) => {
@@ -1694,7 +1703,10 @@ if (diffHardBtn) {
       // Icon mode when zoomed way out so planets stay visible
       const MIN_ICON_RADIUS = 3;
       const useIcon = rPx < MIN_ICON_RADIUS * 2;
-      const drawRadius = useIcon ? MIN_ICON_RADIUS : rPx;
+      const drawRadius = useIcon
+        ? (body === SUN ? MIN_ICON_RADIUS * 2.5 : MIN_ICON_RADIUS)
+        : rPx;
+
 
       // Culling based on what we'll actually draw
       const margin = Math.max(w, h) * 0.6 + drawRadius;
@@ -2204,7 +2216,31 @@ if (diffHardBtn) {
     const maxFuel = stage ? stage.maxFuel : 1;
     const fuelPct = Math.max(0, Math.min(100, (fuel / maxFuel) * 100));
 
+    // New: mass, thrust, TWR, local g, orbit period display
+    const mass = rocketMass(); // uses current difficulty's fuel density
+    const stageThrust = stage ? stage.thrust : 0; // same units as elsewhere in sim
+
+    // Acceleration from thrust alone (km/s²)
+    const thrustAcc = stageThrust > 0 ? stageThrust / mass : 0;
+    // Convert to m/s² for display
+    const thrustAccMS = thrustAcc * 1000;
+
+    // Local "surface" gravity based on primary's mu and radius (km/s²)
+    const surfaceG = primary.mu / (primary.radius * primary.radius);
+    const surfaceGms = surfaceG * 1000;
+
+    // Thrust-to-weight ratio relative to local surface gravity
+    const twr = surfaceG > 0 ? thrustAcc / surfaceG : 0;
+
+    // Orbit period text (only when bound and period is finite)
+    const orbitPeriodText =
+      state.orbitPeriod && isFinite(state.orbitPeriod)
+        ? (state.orbitPeriod / 60).toFixed(1) + " min"
+        : "—";
+
     let orbitStatus;
+
+    
     if (state.orbitEscaping) {
       orbitStatus = state.escaped ? "Escaped system" : "Escaping " + primary.name;
     } else if (state.orbitStable) {
@@ -2239,8 +2275,28 @@ if (diffHardBtn) {
 
     const zoomNorm = (() => {
       const z = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, cameraZoom));
-      return (z - MIN_ZOOM) / (MAX_ZOOM - MIN_ZOOM);
+      const minLog = Math.log10(MIN_ZOOM);
+      const maxLog = Math.log10(MAX_ZOOM);
+      const zLog   = Math.log10(z);
+      const denom  = maxLog - minLog || 1;
+      const t = (zLog - minLog) / denom;
+      return Math.max(0, Math.min(1, t));
     })();
+
+
+    const zoomDisplayText = (() => {
+      const z = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, cameraZoom));
+
+      // Tiny to moderate zoom:
+      if (z < 10)  return z.toFixed(2) + "x";
+      if (z < 100) return z.toFixed(1) + "x";
+      if (z < 1000) return z.toFixed(0) + "x";
+
+      // Large zoom: switch to scientific notation so it doesn't overflow the chip
+      return z.toExponential(2) + "x";
+    })();
+
+    
 
     // Transfer planner HUD chunk
     let transferHTML = "";
@@ -2313,8 +2369,15 @@ if (diffHardBtn) {
           <span class="hud-value">${camModeText}</span>
         </div>
       </div>
+        ${transferHTML
+        ? `<div class="hud-top-row hud-top-row--secondary">
+             ${transferHTML}
+           </div>`
+        : ""
+      }
 
-      <div class="hud-bottom-panel">
+            <div class="hud-bottom-panel">
+        <!-- Row 1: basic flight -->
         <div class="hud-row">
           <div class="hud-chip">
             <span class="hud-label">ALTITUDE (km)</span>
@@ -2332,6 +2395,7 @@ if (diffHardBtn) {
           </div>
         </div>
 
+        <!-- Row 2: orbit geometry + stage -->
         <div class="hud-row">
           <div class="hud-chip">
             <span class="hud-label">PERIAPSIS</span>
@@ -2341,7 +2405,7 @@ if (diffHardBtn) {
             <span class="hud-label">APOAPSIS</span>
             <span class="hud-value">${apoapsisText}</span>
           </div>
-                    <div class="hud-chip">
+          <div class="hud-chip">
             <span class="hud-label">STAGE / FUEL</span>
             <span class="hud-value">
               ${stageName} (${fuelPct.toFixed(0)}%) ·
@@ -2351,22 +2415,43 @@ if (diffHardBtn) {
               <div class="hud-bar-fill" style="--pct:${fuelPct.toFixed(1)}%;"></div>
             </div>
           </div>
-
         </div>
 
+        <!-- Row 3: engineering + zoom + transfer -->
         <div class="hud-row">
           <div class="hud-chip">
+            <span class="hud-label">MASS</span>
+            <span class="hud-value">
+              ${mass.toFixed(2)} t
+            </span>
+          </div>
+          <div class="hud-chip">
+            <span class="hud-label">LOCAL g</span>
+            <span class="hud-value">
+              ${surfaceGms.toFixed(2)} m/s²
+            </span>
+          </div>
+          <div class="hud-chip">
+            <span class="hud-label">ORBIT PERIOD</span>
+            <span class="hud-value">
+              ${orbitPeriodText}
+            </span>
+          </div>
+          <div class="hud-chip">
             <span class="hud-label">ZOOM</span>
-            <span class="hud-value">${cameraZoom.toFixed(2)}x</span>
+            <span class="hud-value">${zoomDisplayText}</span>
             <div class="hud-bar">
               <div class="hud-bar-fill" style="--pct:${(zoomNorm * 100).toFixed(1)}%;"></div>
             </div>
+            ${typeof zoomScaleText !== "undefined"
+              ? `<div class="hud-transfer">Scale: ${zoomScaleText}</div>`
+              : ""}
           </div>
-          ${transferHTML}
         </div>
 
         <div class="hud-message">${state.message || ""}</div>
       </div>
+
     `;
 
   }
