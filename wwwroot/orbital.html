@@ -16,42 +16,324 @@
     display: block;
     background: radial-gradient(circle at 50% 130%, #001018, #000000 65%, #02020a);
   }
-  #overlay {
+  
+    #overlay {
     position: fixed;
-    top: 8px;
-    left: 8px;
-    font-size: 14px;
-    text-shadow: 0 0 4px #000;
-    pointer-events: none;
-    white-space: pre;
-  }
-  #help {
-    position: fixed;
-    bottom: 8px;
-    left: 50%;
-    transform: translateX(-50%);
+    inset: 0;
+    padding: 8px 14px 14px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
     font-size: 13px;
-    text-shadow: 0 0 4px #000;
-    text-align: center;
+    text-shadow: 0 0 6px #000;
+    pointer-events: none;
+    box-sizing: border-box;
+    background: linear-gradient(
+      to bottom,
+      rgba(0, 0, 0, 0.0),
+      rgba(0, 0, 0, 0.25) 60%,
+      rgba(0, 0, 0, 0.5)
+    );
+  }
+
+  /* Futuristic / digital-steampunk HUD */
+
+  .hud-top-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: flex-start;
+  }
+
+  .hud-bottom-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .hud-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    justify-content: center;
+  }
+
+  .hud-chip {
+    background: radial-gradient(circle at 20% 0%, rgba(255,255,255,0.09), rgba(10,10,15,0.96));
+    border: 1px solid rgba(210,160,90,0.45);
+    box-shadow:
+      0 0 6px rgba(0,0,0,0.9),
+      0 0 12px rgba(255,200,120,0.18);
+    border-radius: 7px;
+    padding: 4px 8px 5px;
+    min-width: 92px;
+    max-width: 260px;
+    backdrop-filter: blur(4px);
     pointer-events: none;
   }
+
+  .hud-chip--wide {
+    flex: 1 1 260px;
+  }
+
+  .hud-label {
+    display: block;
+    font-size: 9px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: #ffddaa;
+    opacity: 0.9;
+    margin-bottom: 2px;
+  }
+
+  .hud-value {
+    font-family: "SF Mono", "Consolas", "Menlo", monospace;
+    font-size: 13px;
+    color: #f3f3f3;
+    white-space: nowrap;
+  }
+
+  .hud-value--large {
+    font-size: 14px;
+  }
+
+  .hud-odometer {
+    display: inline-flex;
+    gap: 2px;
+    padding: 2px 4px;
+    margin-top: 1px;
+    background: linear-gradient(to bottom, #26160d, #050308);
+    border-radius: 4px;
+    border: 1px solid rgba(255,190,120,0.35);
+    box-shadow: inset 0 0 6px rgba(0,0,0,0.85);
+  }
+
+  .hud-odo-digit {
+    min-width: 0.6em;
+    padding: 0 1px;
+    text-align: center;
+    border-radius: 2px;
+    background: radial-gradient(circle at 50% 0%, rgba(255,255,255,0.18), rgba(5,5,8,1));
+    color: #ffefc0;
+    text-shadow: 0 0 4px rgba(255,210,140,0.85);
+  }
+
+  .hud-odo-digit--dim {
+    opacity: 0.35;
+  }
+
+  .hud-odo-sign {
+    margin-right: 3px;
+    color: #ffb49b;
+  }
+
+  .hud-bar {
+    position: relative;
+    height: 6px;
+    border-radius: 999px;
+    background: rgba(16,14,10,0.95);
+    overflow: hidden;
+    margin-top: 3px;
+    box-shadow: inset 0 0 3px rgba(0,0,0,0.9);
+  }
+
+  .hud-bar-fill {
+    position: absolute;
+    inset: 1px;
+    width: var(--pct, 50%);
+    border-radius: 999px;
+    background: linearGradient(90deg, #4cf8c0, #ffe477, #ff7b57);
+    background: linear-gradient(90deg, #4cf8c0, #ffe477, #ff7b57);
+    box-shadow: 0 0 6px rgba(255,220,140,0.9);
+  }
+
+  .hud-message {
+    text-align: center;
+    color: #f8e7c4;
+    font-size: 12px;
+    margin-top: 4px;
+    min-height: 1em;
+  }
+
+  .hud-transfer {
+    font-size: 11px;
+    margin-top: 3px;
+    color: #d8f6ff;
+    line-height: 1.25;
+  }
+
+
+
+    /* Help popup panel + toggle button */
+
+      #help-panel {
+    position: fixed;
+    right: 16px;
+    bottom: 56px; /* sits just above the HELP button (which is at bottom:16px) */
+    max-width: 360px;
+    padding: 10px 14px;
+    font-size: 12px;
+    line-height: 1.4;
+    color: #f8eedc;
+    background: radial-gradient(circle at 10% 0%, rgba(255,255,255,0.12), rgba(10,7,4,0.96));
+    border: 1px solid rgba(210,160,90,0.65);
+    border-radius: 9px;
+    box-shadow:
+      0 0 10px rgba(0,0,0,0.95),
+      0 0 18px rgba(255,205,140,0.25);
+    backdrop-filter: blur(5px);
+    pointer-events: auto;
+    z-index: 40;
+    opacity: 1;
+    transform: translateY(0);
+    transition: opacity 0.22s ease-out, transform 0.22s ease-out;
+  }
+
+  #help-panel.help-panel--hidden {
+    opacity: 0;
+    transform: translateY(10px); /* slide down toward the button as it fades out */
+    pointer-events: none;
+  }
+
+
+
+  #help-panel h2 {
+    margin: 0 0 4px;
+    font-size: 12px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: #ffddaa;
+  }
+
+  #help-panel .help-section-title {
+    font-weight: 600;
+    color: #ffe8c6;
+    margin-top: 4px;
+    margin-bottom: 2px;
+  }
+
+  #help-panel .help-keys {
+    font-family: "SF Mono", "Consolas", "Menlo", monospace;
+    font-size: 11px;
+    color: #e6f2ff;
+  }
+
+  #help-panel .help-keys span {
+    display: inline-block;
+    padding: 1px 4px;
+    margin-right: 4px;
+    margin-bottom: 2px;
+    border-radius: 4px;
+    border: 1px solid rgba(255,220,160,0.4);
+    background: rgba(10,6,4,0.85);
+  }
+
+  #help-panel .help-footnote {
+    margin-top: 4px;
+    font-size: 11px;
+    color: #d3c7b7;
+    opacity: 0.9;
+  }
+
+    #help-toggle {
+    position: fixed;
+    bottom: 16px;
+    right: 16px;
+    min-width: 60px;
+    padding: 0 10px;
+    height: 30px;
+    border-radius: 999px;
+    border: 1px solid rgba(210,160,90,0.7);
+    background: radial-gradient(circle at 30% 0%, rgba(255,255,255,0.18), rgba(10,7,4,0.98));
+    box-shadow:
+      0 0 8px rgba(0,0,0,0.9),
+      0 0 12px rgba(255,215,150,0.35);
+    color: #ffe9c7;
+    font-family: "SF Mono", "Consolas", "Menlo", monospace;
+    font-size: 12px;
+    text-align: center;
+    line-height: 30px;
+    cursor: pointer;
+    pointer-events: auto;
+    z-index: 41;
+  }
+
+  #help-toggle.help-toggle--active {
+    box-shadow:
+      0 0 10px rgba(255,220,150,0.8),
+      0 0 18px rgba(255,240,200,0.6);
+    border-color: rgba(255,220,160,0.95);
+  }
+
+
 </style>
 </head>
 <body>
 <canvas id="game"></canvas>
 <div id="overlay"></div>
-<div id="help">
-  Controls: ← → rotate · ↑ thrust / takeoff · SPACE stage · R reset · [ / ] time warp · - / = zoom · F follow/free<br>
-  Mouse wheel zooms · Drag to pan (free cam) · Dashed path = coast-only trajectory under moving Helion + planet gravity.<br>
-  Transfer planner: 1–8 select target planet · P plan Helion-centered Hohmann (inner → outer only) · O toggle Sun orbit overlay
+<div id="help-panel">
+  <h2>FLIGHT MANUAL</h2>
 
+  <div class="help-section-title">Attitude &amp; Thrust</div>
+  <div class="help-keys">
+    <span>← / →</span> rotate &nbsp;·&nbsp;
+    <span>↑</span> thrust / liftoff &nbsp;·&nbsp;
+    <span>SPACE</span> stage
+  </div>
+
+  <div class="help-section-title">Time &amp; Camera</div>
+  <div class="help-keys">
+    <span>[ / ]</span> time warp &nbsp;·&nbsp;
+    <span>- / =</span> zoom &nbsp;·&nbsp;
+    <span>F</span> follow / free cam &nbsp;·&nbsp;
+    mouse wheel zoom &nbsp;·&nbsp; drag to pan (free cam)
+  </div>
+
+  <div class="help-section-title">Transfer Planner</div>
+  <div class="help-keys">
+    <span>1–8</span> select target planet &nbsp;·&nbsp;
+    <span>P</span> plan Helion-centered Hohmann (inner → outer)
+  </div>
+
+  <div class="help-section-title">Misc</div>
+  <div class="help-keys">
+    <span>R</span> reset flight &nbsp;·&nbsp;
+    <span>O</span> toggle Sun-orbit overlay &nbsp;·&nbsp;
+    <span>H</span> toggle this manual
+  </div>
+
+  <div class="help-footnote">
+    Dashed yellow path: coast-only trajectory under moving Helion + planet gravity.<br>
+    Cyan arc: planned transfer orbit. Stable local &amp; Helion orbits are drawn in blue/cyan.
+  </div>
 </div>
+
+<div id="help-toggle" class="help-toggle--active">HELP</div>
+
+
 
 <script>
 (function () {
-  const canvas = document.getElementById("game");
+    const canvas = document.getElementById("game");
   const ctx = canvas.getContext("2d");
   const overlay = document.getElementById("overlay");
+  const helpPanel = document.getElementById("help-panel");
+  const helpToggle = document.getElementById("help-toggle");
+  let helpVisible = true;
+
+ function setHelpVisible(v) {
+   helpVisible = v;
+   if (!helpPanel || !helpToggle) return;
+   if (helpVisible) {
+     helpPanel.classList.remove("help-panel--hidden");
+     helpToggle.classList.add("help-toggle--active");
+   } else {
+     helpPanel.classList.add("help-panel--hidden");
+     helpToggle.classList.remove("help-toggle--active");
+   }
+ }
+  
+
   const SAFE_COORD = 1_000_000;
   const SAFE_ORBIT_RADIUS_PX = 20000;
 
@@ -473,6 +755,10 @@
       state.message = "Sun orbit overlay: " + (showSunOrbit ? "ON" : "OFF");
     }
 
+    if (e.code === "KeyH") {
+      setHelpVisible(!helpVisible);
+    }
+
     if (e.code === "Digit1") setTransferTarget(1);
     if (e.code === "Digit2") setTransferTarget(2);
     if (e.code === "Digit3") setTransferTarget(3);
@@ -500,6 +786,14 @@
     }
   }, { passive: false });
 
+if (helpToggle) {
+  helpToggle.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setHelpVisible(!helpVisible);
+  });
+}
+  
   function getScale() {
     const w = canvas.width;
     const h = canvas.height;
@@ -1687,7 +1981,8 @@
     }
     ctx.restore();
 
-    // HUD
+        // HUD (digital steampunk)
+
     const primary = state.primaryBody || getPrimaryBody(rocket.x, rocket.y);
     const dxp = rocket.x - primary.x;
     const dyp = rocket.y - primary.y;
@@ -1727,19 +2022,21 @@
 
     const camModeText = cameraFollow ? "Follow ship" : "Free";
 
-    overlay.textContent =
-      "BODY: " + primary.name + "\n" +
-      "ALT: " + alt.toFixed(1) + " km\n" +
-      "SPEED: " + speed.toFixed(2) + " km/s\n" +
-      "VERT SPD: " + radialVel.toFixed(2) + " km/s (" + (radialVel >= 0 ? "↑" : "↓") + ")\n" +
-      "STAGE: " + stageName + " (" + fuelPct.toFixed(0) + "% fuel)\n" +
-      "ORBIT: " + orbitStatus + "\n" +
-      "Periapsis: " + periapsisText + "\n" +
-      "Apoapsis: " + apoapsisText + "\n" +
-      "WARP: " + timeScale.toFixed(2) + "x\n" +
-      "ZOOM: " + cameraZoom.toFixed(2) + "x\n" +
-      "CAM: " + camModeText + "\n";
+    // Normalized values for gauges
+    const warpNorm = (() => {
+      const minLog = Math.log10(MIN_WARP);
+      const maxLog = Math.log10(MAX_WARP);
+      const wLog = Math.log10(Math.max(MIN_WARP, Math.min(MAX_WARP, timeScale)));
+      return (wLog - minLog) / (maxLog - minLog);
+    })();
 
+    const zoomNorm = (() => {
+      const z = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, cameraZoom));
+      return (z - MIN_ZOOM) / (MAX_ZOOM - MIN_ZOOM);
+    })();
+
+    // Transfer planner HUD chunk
+    let transferHTML = "";
     if (transferPlan) {
       const origin = BODIES[transferPlan.originIndex];
       const dest = BODIES[transferPlan.destIndex];
@@ -1757,18 +2054,143 @@
         timeToWindow = tRaw;
       }
 
-      overlay.textContent +=
-        "\nTRANSFER: " + origin.name + " → " + dest.name + "\n" +
-        "Phase error: " + phaseErrorDeg.toFixed(1) + "°\n" +
-        (timeToWindow != null
-           ? "Time to window: " + (timeToWindow / 60).toFixed(1) + " min\n"
-           : "") +
-        "Δv1 (depart): " + transferPlan.deltaV1.toFixed(3) + " km/s\n" +
-        "Δv2 (circularize): " + transferPlan.deltaV2.toFixed(3) + " km/s\n";
+      const timeStr =
+        timeToWindow != null
+          ? ` · T-${(timeToWindow / 60).toFixed(1)} min`
+          : "";
+
+      transferHTML = `
+        <div class="hud-chip hud-chip--wide">
+          <span class="hud-label">TRANSFER</span>
+          <span class="hud-value">
+            ${origin.name} → ${dest.name}
+          </span>
+          <div class="hud-transfer">
+            Phase: ${phaseErrorDeg.toFixed(1)}°${timeStr}<br>
+            Δv1: ${transferPlan.deltaV1.toFixed(3)} km/s · Δv2: ${transferPlan.deltaV2.toFixed(3)} km/s
+          </div>
+        </div>
+      `;
     }
 
-    overlay.textContent += "\n" + state.message;
+    const altHTML = odometerHTML(alt, 6, 1);
+    const speedHTML = odometerHTML(speed, 4, 2);
+    const vspdHTML = odometerHTML(Math.abs(radialVel), 3, 2);
+
+    overlay.innerHTML = `
+      <div class="hud-top-row">
+        <div class="hud-chip">
+          <span class="hud-label">PRIMARY BODY</span>
+          <span class="hud-value hud-value--large">${primary.name}</span>
+        </div>
+        <div class="hud-chip">
+          <span class="hud-label">ORBIT STATE</span>
+          <span class="hud-value">${orbitStatus}</span>
+        </div>
+        <div class="hud-chip">
+          <span class="hud-label">WARP</span>
+          <span class="hud-value">${timeScale.toFixed(2)}x</span>
+          <div class="hud-bar">
+            <div class="hud-bar-fill" style="--pct:${(warpNorm * 100).toFixed(1)}%;"></div>
+          </div>
+        </div>
+        <div class="hud-chip">
+          <span class="hud-label">CAMERA</span>
+          <span class="hud-value">${camModeText}</span>
+        </div>
+      </div>
+
+      <div class="hud-bottom-panel">
+        <div class="hud-row">
+          <div class="hud-chip">
+            <span class="hud-label">ALTITUDE (km)</span>
+            <span class="hud-value">${altHTML}</span>
+          </div>
+          <div class="hud-chip">
+            <span class="hud-label">SPEED (km/s)</span>
+            <span class="hud-value">${speedHTML}</span>
+          </div>
+          <div class="hud-chip">
+            <span class="hud-label">VERTICAL (km/s)</span>
+            <span class="hud-value">
+              ${radialVel >= 0 ? "↑" : "↓"} ${vspdHTML}
+            </span>
+          </div>
+        </div>
+
+        <div class="hud-row">
+          <div class="hud-chip">
+            <span class="hud-label">PERIAPSIS</span>
+            <span class="hud-value">${periapsisText}</span>
+          </div>
+          <div class="hud-chip">
+            <span class="hud-label">APOAPSIS</span>
+            <span class="hud-value">${apoapsisText}</span>
+          </div>
+          <div class="hud-chip">
+            <span class="hud-label">STAGE / FUEL</span>
+            <span class="hud-value">${stageName} (${fuelPct.toFixed(0)}%)</span>
+            <div class="hud-bar">
+              <div class="hud-bar-fill" style="--pct:${fuelPct.toFixed(1)}%;"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="hud-row">
+          <div class="hud-chip">
+            <span class="hud-label">ZOOM</span>
+            <span class="hud-value">${cameraZoom.toFixed(2)}x</span>
+            <div class="hud-bar">
+              <div class="hud-bar-fill" style="--pct:${(zoomNorm * 100).toFixed(1)}%;"></div>
+            </div>
+          </div>
+          ${transferHTML}
+        </div>
+
+        <div class="hud-message">${state.message || ""}</div>
+      </div>
+    `;
+
   }
+
+    function odometerHTML(value, digits, decimals) {
+    const sign = value < 0 ? "-" : "";
+    const abs = Math.abs(value);
+    const fixed = abs.toFixed(decimals);
+    const parts = fixed.split(".");
+    const intPart = parts[0].padStart(digits, "0");
+    const fracPart = parts[1] || "";
+
+    let html = '<span class="hud-odometer">';
+
+    // Integer digits (with leading zeros dimmed)
+    let leadingNonZeroSeen = false;
+    for (let i = 0; i < intPart.length; i++) {
+      const ch = intPart[i];
+      if (ch !== "0") leadingNonZeroSeen = true;
+      const dim = !leadingNonZeroSeen && i < intPart.length - 1;
+      html += `<span class="hud-odo-digit${dim ? " hud-odo-digit--dim" : ""}">${ch}</span>`;
+    }
+
+    // Decimal digits
+    if (decimals > 0) {
+      html += '<span class="hud-odo-digit">.</span>';
+      for (const ch of fracPart) {
+        html += `<span class="hud-odo-digit">${ch}</span>`;
+      }
+    }
+
+    html += "</span>";
+
+    if (sign === "-") {
+      html = `<span class="hud-odo-sign">-</span>${html}`;
+    }
+
+    return html;
+  }
+
+
+
 
   // --- Main loop ---------------------------------------------------------
 // --- Main loop ---------------------------------------------------------
