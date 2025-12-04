@@ -737,8 +737,8 @@
   // Fuel "density" = mass per fuel unit.
   // Easy: lighter fuel ⇒ same volume weighs less ⇒ higher TWR for the same tank size.
   // Hard: denser fuel ⇒ same volume is heavier ⇒ lower TWR for tighter burns.
-  const FUEL_DENSITY_EASY = 0.008;
-  const FUEL_DENSITY_HARD = 0.020;
+  const FUEL_DENSITY_EASY = 0.001;
+  const FUEL_DENSITY_HARD = 0.1;
 
   // Easy mode: big tanks + light fuel
   // Roughly ~9 km/s total Δv (very forgiving).
@@ -771,8 +771,8 @@
     },
     {
       name: "Orbiter",
-      maxFuel: 60,
-      fuel: 60,
+      maxFuel: 200,
+      fuel: 200,
       thrust: 10,
       dryMass: 3
     }
