@@ -264,6 +264,80 @@
       0 0 18px rgba(255,240,200,0.6);
     border-color: rgba(255,220,160,0.95);
   }
+  /* Difficulty selector: Easy vs Hard fuel */
+
+  #difficulty-panel {
+    position: fixed;
+    left: 50%;
+    bottom: 200px;
+    transform: translateX(-50%);
+    padding: 8px 14px;
+    max-width: 360px;
+    background: radial-gradient(circle at 20% 0%, rgba(255,255,255,0.12), rgba(10,7,4,0.96));
+    border: 1px solid rgba(210,160,90,0.7);
+    border-radius: 10px;
+    box-shadow:
+      0 0 10px rgba(0,0,0,0.95),
+      0 0 18px rgba(255,205,140,0.30);
+    font-size: 12px;
+    color: #ffe9c7;
+    pointer-events: auto;
+    z-index: 39; /* below help panel but above HUD */
+    opacity: 1;
+    transition: opacity 0.25s ease-out, transform 0.25s ease-out;
+  }
+
+  #difficulty-panel.difficulty-panel--hidden {
+    opacity: 0;
+    transform: translate(-50%, 10px);
+    pointer-events: none;
+  }
+
+  #difficulty-panel h3 {
+    margin: 0 0 4px;
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: #ffddaa;
+  }
+
+  #difficulty-panel p {
+    margin: 0 0 6px;
+    font-size: 11px;
+    color: #f2e0c0;
+    opacity: 0.9;
+  }
+
+  .difficulty-buttons {
+    display: flex;
+    gap: 8px;
+  }
+
+  .difficulty-button {
+    flex: 1 1 auto;
+    padding: 5px 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(210,160,90,0.7);
+    background: radial-gradient(circle at 30% 0%, rgba(255,255,255,0.18), rgba(10,7,4,0.98));
+    box-shadow:
+      0 0 6px rgba(0,0,0,0.85),
+      0 0 10px rgba(0,0,0,0.55);
+    font-family: "SF Mono", "Consolas", "Menlo", monospace;
+    font-size: 11px;
+    color: #ffe9c7;
+    cursor: pointer;
+    text-align: center;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .difficulty-button--selected {
+    border-color: rgba(255,220,160,0.95);
+    box-shadow:
+      0 0 10px rgba(255,220,150,0.8),
+      0 0 18px rgba(255,240,200,0.6);
+    color: #fff8df;
+  }
 
 
 </style>
@@ -271,6 +345,23 @@
 <body>
 <canvas id="game"></canvas>
 <div id="overlay"></div>
+<div id="difficulty-panel">
+  <h3>FUEL MODE</h3>
+  <p>Choose your tank size before liftoff. No selection = Easy.</p>
+  <div class="difficulty-buttons">
+    <button id="diff-easy"
+            class="difficulty-button difficulty-button--selected"
+            type="button">
+      Easy – full tanks
+    </button>
+    <button id="diff-hard"
+            class="difficulty-button"
+            type="button">
+      Hard – realistic budget
+    </button>
+  </div>
+</div>
+
 <div id="help-panel">
   <h2>FLIGHT MANUAL</h2>
 
@@ -320,6 +411,46 @@
   const helpPanel = document.getElementById("help-panel");
   const helpToggle = document.getElementById("help-toggle");
   let helpVisible = true;
+
+    const diffPanel = document.getElementById("difficulty-panel");
+  const diffEasyBtn = document.getElementById("diff-easy");
+  const diffHardBtn = document.getElementById("diff-hard");
+
+  function updateDifficultyButtons() {
+    if (!diffPanel) return;
+    if (diffEasyBtn) {
+      if (difficulty === "easy") diffEasyBtn.classList.add("difficulty-button--selected");
+      else diffEasyBtn.classList.remove("difficulty-button--selected");
+    }
+    if (diffHardBtn) {
+      if (difficulty === "hard") diffHardBtn.classList.add("difficulty-button--selected");
+      else diffHardBtn.classList.remove("difficulty-button--selected");
+    }
+  }
+
+  function showDifficultyPanel() {
+    if (!diffPanel) return;
+    diffPanel.classList.remove("difficulty-panel--hidden");
+    updateDifficultyButtons();
+  }
+
+  function hideDifficultyPanel() {
+    if (!diffPanel) return;
+    diffPanel.classList.add("difficulty-panel--hidden");
+  }
+
+  function setDifficultyMode(mode) {
+    difficulty = (mode === "hard") ? "hard" : "easy";
+    if (state) {
+      // Reload stages with the chosen fuel amounts
+      state.stages = cloneStages();
+      state.currentStageIndex = 0;
+      state.message =
+        "Difficulty: " +
+        (difficulty === "hard" ? "Hard fuel budget loaded." : "Easy fuel budget loaded.");
+    }
+    updateDifficultyButtons();
+  }
 
  function setHelpVisible(v) {
    helpVisible = v;
@@ -594,24 +725,70 @@
 
   // --- Rocket & stages ---------------------------------------------------
   const CORE_MASS = 4;
-  const FUEL_DENSITY = 0.01;
 
-  const STAGES_TEMPLATE = [
+  // Fuel "density" = mass per fuel unit.
+  // Easy: lighter fuel ⇒ same volume weighs less ⇒ higher TWR for the same tank size.
+  // Hard: denser fuel ⇒ same volume is heavier ⇒ lower TWR for tighter burns.
+  const FUEL_DENSITY_EASY = 0.008;
+  const FUEL_DENSITY_HARD = 0.020;
+
+  // Easy mode: big tanks + light fuel
+  // Roughly ~9 km/s total Δv (very forgiving).
+  const STAGES_EASY = [
     {
       name: "Booster",
       maxFuel: 12000,
       fuel: 12000,
-      thrust: 32,   // 1/10 original
+      thrust: 32,   // 1/10 original thrust
       dryMass: 6
     },
     {
       name: "Orbiter",
       maxFuel: 7000,
       fuel: 7000,
-      thrust: 10,   // 1/10 original
+      thrust: 10,   // 1/10 original thrust
       dryMass: 3
     }
   ];
+
+  // Hard mode: much smaller tanks + dense fuel
+  // Roughly ~4 km/s total Δv if flown well (orbit + transfers but with little slack).
+  const STAGES_HARD = [
+    {
+      name: "Booster",
+      maxFuel: 1200,
+      fuel: 1200,
+      thrust: 32,
+      dryMass: 6
+    },
+    {
+      name: "Orbiter",
+      maxFuel: 250,
+      fuel: 250,
+      thrust: 10,
+      dryMass: 3
+    }
+  ];
+
+  // Helper to pick the active fuel density for the current difficulty.
+  function getFuelDensity() {
+    // assumes you already have: let difficulty = "easy";
+    return difficulty === "hard" ? FUEL_DENSITY_HARD : FUEL_DENSITY_EASY;
+  }
+
+  // If you already have getStageTemplate/cloneStages below, make sure they use STAGES_EASY/STAGES_HARD.
+  function getStageTemplate() {
+    return difficulty === "hard" ? STAGES_HARD : STAGES_EASY;
+  }
+
+  function cloneStages() {
+    return getStageTemplate().map(s => ({ ...s }));
+  }
+
+
+  // Default: no selection ⇒ Easy mode
+  let difficulty = "easy";
+
 
   const ROT_SPEED = (Math.PI / 180) * 60; // rad/s
 
@@ -625,9 +802,14 @@
 
   let state;
 
-  function cloneStages() {
-    return STAGES_TEMPLATE.map(s => ({ ...s }));
+  function getStageTemplate() {
+    return difficulty === "hard" ? STAGES_HARD : STAGES_EASY;
   }
+
+  function cloneStages() {
+    return getStageTemplate().map(s => ({ ...s }));
+  }
+
 
   function resetGame() {
     initOrbits();
@@ -690,22 +872,28 @@
     cameraY = state.rocket.y;
 
     transferPlan = null;
+
+    // Fresh flight on the pad – show difficulty selector
+    showDifficultyPanel();
+    updateDifficultyButtons();
   }
 
   resetGame();
 
+
   function currentStage() {
     return state.stages[state.currentStageIndex] || null;
   }
-
   function rocketMass() {
+    const fuelDensity = getFuelDensity();
     let mass = CORE_MASS;
     for (let i = state.currentStageIndex; i < state.stages.length; i++) {
       const s = state.stages[i];
-      mass += s.dryMass + s.fuel * FUEL_DENSITY;
+      mass += s.dryMass + s.fuel * fuelDensity;
     }
     return mass;
   }
+
 
   // --- Input -------------------------------------------------------------
   const keys = {};
@@ -793,6 +981,21 @@ if (helpToggle) {
     setHelpVisible(!helpVisible);
   });
 }
+if (diffEasyBtn) {
+  diffEasyBtn.addEventListener("click", function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    setDifficultyMode("easy");
+  });
+}
+if (diffHardBtn) {
+  diffHardBtn.addEventListener("click", function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    setDifficultyMode("hard");
+  });
+}
+
   
   function getScale() {
     const w = canvas.width;
@@ -883,13 +1086,17 @@ if (helpToggle) {
         cameraY = rocket.y;
       }
 
-      if (!wantsThrust) {
+           if (!wantsThrust) {
         return;
       } else {
         state.landed = false;
         state.landedBody = null;
         state.message = "Liftoff from " + body.name + "!";
+
+        // Once we leave the pad, fade out the difficulty selector
+        hideDifficultyPanel();
       }
+
     }
 
     if (state.crashed || state.escaped) {
@@ -2078,11 +2285,18 @@ if (helpToggle) {
     const vspdHTML = odometerHTML(Math.abs(radialVel), 3, 2);
 
     overlay.innerHTML = `
-      <div class="hud-top-row">
+           <div class="hud-top-row">
         <div class="hud-chip">
           <span class="hud-label">PRIMARY BODY</span>
           <span class="hud-value hud-value--large">${primary.name}</span>
         </div>
+        <div class="hud-chip">
+          <span class="hud-label">MODE</span>
+          <span class="hud-value">
+            ${difficulty === "hard" ? "HARD – reduced tanks" : "EASY – full tanks"}
+          </span>
+        </div>
+
         <div class="hud-chip">
           <span class="hud-label">ORBIT STATE</span>
           <span class="hud-value">${orbitStatus}</span>
@@ -2127,13 +2341,17 @@ if (helpToggle) {
             <span class="hud-label">APOAPSIS</span>
             <span class="hud-value">${apoapsisText}</span>
           </div>
-          <div class="hud-chip">
+                    <div class="hud-chip">
             <span class="hud-label">STAGE / FUEL</span>
-            <span class="hud-value">${stageName} (${fuelPct.toFixed(0)}%)</span>
+            <span class="hud-value">
+              ${stageName} (${fuelPct.toFixed(0)}%) ·
+              ${fuel.toFixed(0)}/${maxFuel.toFixed(0)} u
+            </span>
             <div class="hud-bar">
               <div class="hud-bar-fill" style="--pct:${fuelPct.toFixed(1)}%;"></div>
             </div>
           </div>
+
         </div>
 
         <div class="hud-row">
