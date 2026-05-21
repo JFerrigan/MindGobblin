@@ -65,7 +65,7 @@ jobs:
             echo "Pulling image ${IMAGE}:${TAG}"
             docker pull "${IMAGE}:${TAG}"
 
-            echo "Stopping old container (if any)"I
+            echo "Stopping old container (if any)"
             docker rm -f "${CONTAINER}" >/dev/null 2>&1 || true
 
             echo "Starting new container"
@@ -80,5 +80,8 @@ jobs:
               -v /srv/mindgobblin/dp-keys:/app/keys \
               -p 127.0.0.1:${PORT}:${PORT} \
               "${IMAGE}:${TAG}"
+
+            echo "Pruning unused Docker images"
+            docker image prune -af >/dev/null 2>&1 || true
 
             echo "Deployed ${IMAGE}:${TAG} on 127.0.0.1:${PORT}"
